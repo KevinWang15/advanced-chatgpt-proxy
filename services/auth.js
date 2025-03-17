@@ -1,0 +1,222 @@
+const sqlite3 = require('sqlite3').verbose();
+const crypto = require('crypto');
+const path = require('path');
+
+// Initialize database
+const dbPath = path.join(__dirname, 'auth.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('Error opening auth database:', err.message);
+    } else {
+        console.log('Connected to the auth database.');
+
+        // Create tokens table if it doesn't exist
+        db.run(`CREATE TABLE IF NOT EXISTS tokens
+                (
+                    token
+                    TEXT
+                    PRIMARY
+                    KEY,
+                    created_at
+                    INTEGER
+                    NOT
+                    NULL
+                )`, (err) => {
+            if (err) {
+                console.error('Error creating tokens table:', err.message);
+            } else {
+                console.log('Tokens table ready');
+            }
+        });
+
+        // Create conversation_access table if it doesn't exist
+        db.run(`CREATE TABLE IF NOT EXISTS conversation_access
+        (
+            token
+            TEXT
+            NOT
+            NULL,
+            conversation_id
+            TEXT
+            NOT
+            NULL,
+            access_type
+            TEXT
+            NOT
+            NULL,
+            created_at
+            INTEGER
+            NOT
+            NULL,
+            PRIMARY
+            KEY
+                (
+            token,
+            conversation_id
+                ),
+            FOREIGN KEY
+                (
+                    token
+                ) REFERENCES tokens
+                (
+                    token
+                ) ON DELETE CASCADE
+            )`, (err) => {
+            if (err) {
+                console.error('Error creating conversation_access table:', err.message);
+            } else {
+                console.log('Conversation access table ready');
+            }
+        });
+    }
+});
+
+// Generate a secure random token
+function generateToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// Save a token to the database
+function saveToken(token) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare('INSERT INTO tokens (token, created_at) VALUES (?, ?)');
+        stmt.run(token, Date.now(), function (err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(this.lastID);
+            }
+        });
+        stmt.finalize();
+    });
+}
+
+// Verify if a token exists in the database
+function verifyToken(token) {
+    return new Promise((resolve, reject) => {
+        if (!token) {
+            resolve(false);
+            return;
+        }
+
+        db.get('SELECT token FROM tokens WHERE token = ?', [token], (err, row) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(!!row);
+            }
+        });
+    });
+}
+
+function checkConversationAccess(conversationId, token, requiredAccessType = null) {
+    return new Promise((resolve, reject) => {
+        if (!token || !conversationId) {
+            resolve(false);
+            return;
+        }
+
+        // Build the query based on whether we need to check for a specific access type
+        let query = 'SELECT access_type FROM conversation_access WHERE token = ? AND conversation_id = ?';
+        const params = [token, conversationId];
+
+        if (requiredAccessType) {
+            query += ' AND access_type = ?';
+            params.push(requiredAccessType);
+        }
+
+        db.get(query, params, (err, row) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(!!row);
+            }
+        });
+    });
+}
+
+function addConversationAccess(conversationId, token, accessType = 'owner') {
+    return new Promise((resolve, reject) => {
+        // First, check if the conversation_id already exists with a different token
+        const checkStmt = db.prepare(
+            'SELECT token FROM conversation_access WHERE conversation_id = ?'
+        );
+
+        checkStmt.get(conversationId, (err, row) => {
+            if (err) {
+                reject(err);
+            } else if (row && row.token !== token) {
+                // If a different token is associated with the conversation_id, throw an error
+                reject(
+                    new Error(
+                        'Access to this conversation cannot be granted. A different user already has access.'
+                    )
+                );
+            } else {
+                // If no conflicting token, insert or replace access record
+                const stmt = db.prepare(
+                    'INSERT OR REPLACE INTO conversation_access (token, conversation_id, access_type, created_at) VALUES (?, ?, ?, ?)'
+                );
+
+                stmt.run(token, conversationId, accessType, Date.now(), function (err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(true);
+                    }
+                });
+
+                stmt.finalize();
+            }
+        });
+
+        checkStmt.finalize();
+    });
+}
+
+function listUserConversations(token) {
+    return new Promise((resolve, reject) => {
+        if (!token) {
+            resolve([]);
+            return;
+        }
+
+        db.all(
+            'SELECT conversation_id, access_type FROM conversation_access WHERE token = ? ORDER BY created_at DESC',
+            [token],
+            (err, rows) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows || []);
+                }
+            }
+        );
+    });
+}
+
+function removeConversationAccess(conversationId, token) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare('DELETE FROM conversation_access WHERE token = ? AND conversation_id = ?');
+
+        stmt.run(token, conversationId, function (err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(this.changes > 0);
+            }
+        });
+
+        stmt.finalize();
+    });
+}
+
+module.exports = {
+    generateToken,
+    saveToken,
+    verifyToken,
+    checkConversationAccess,
+    addConversationAccess,
+    listUserConversations,
+    removeConversationAccess,
+};
