@@ -1,0 +1,14 @@
+node_modules
+cache
+auth.db
+.idea
+rootCA*
+config.js
+chrome-profiles
+
+x.js
+config.bak.js
+config.centralserver.js
+config.worker.js
+config.worker.xx.js
+config.adminconsole.js

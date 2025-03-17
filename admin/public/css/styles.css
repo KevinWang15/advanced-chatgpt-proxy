@@ -1,0 +1,82 @@
+/* Custom styles for Account Admin Console */
+
+/* General styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.error-message {
+    color: #dc3545;
+    margin-bottom: 1rem;
+    display: none;
+}
+
+/* Accounts page styles */
+.navbar {
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 2rem;
+}
+
+.account-actions {
+    white-space: nowrap;
+}
+
+.account-actions > p{
+    margin-bottom: 8px;
+}
+.account-actions > p:last-of-type {
+    margin-bottom: 0;
+}
+
+.modal-label {
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .card {
+        border-radius: 0.25rem;
+    }
+
+    .table-responsive {
+        border: 0;
+    }
+}
+
+/* Button hover effects */
+.btn-primary:hover {
+    background-color: #0069d9;
+    border-color: #0062cc;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+    border-color: #1e7e34;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+    border-color: #bd2130;
+}
+
+/* Table styles */
+.table th {
+    background-color: #f8f9fa;
+    border-top: none;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
