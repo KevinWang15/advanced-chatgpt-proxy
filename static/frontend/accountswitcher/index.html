@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Switcher</title>
+    <style>
+        :root {
+            --free-color: #53a68d;
+            --plus-color: #8e44ad;
+            --pro-color: #e67e22;
+            --degraded-slight: #f39c12;
+            --degraded-severe: #e74c3c;
+            --not-degraded: #2ecc71;
+            --unknown: #95a5a6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f9f9f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 480px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .header {
+            padding: 20px;
+            background-color: #10a37f;
+            color: white;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .account-list {
+            padding: 0;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+
+        .account-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            position: relative;
+        }
+
+        .account-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            margin-right: 16px;
+            background-color: #f0f0f0;
+            overflow: hidden;
+        }
+
+        .account-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .account-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .account-item.active {
+            background-color: #e6f7f4;
+        }
+
+        .account-info {
+            flex-grow: 1;
+        }
+
+        .account-name {
+            font-size: 1rem;
+            color: #333;
+            margin-bottom: 4px;
+            font-weight: 500;
+            word-break: break-all;
+        }
+
+        .account-email {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 6px;
+            word-break: break-all;
+        }
+
+        .status-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .plan-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: white;
+            text-transform: uppercase;
+            width: 50px;
+            text-align: center;
+        }
+
+        .plan-free {
+            background-color: var(--free-color);
+        }
+
+        .plan-plus {
+            background-color: var(--plus-color);
+        }
+
+        .plan-pro {
+            background-color: var(--pro-color);
+            background-image: linear-gradient(135deg, #f39c12, #e67e22);
+            box-shadow: 0 2px 4px rgba(230, 126, 34, 0.3);
+        }
+
+        .degradation-indicator {
+            display: flex;
+            align-items: center;
+            font-size: 0.75rem;
+            gap: 4px;
+        }
+
+        .degradation-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .degradation-0 {
+            background-color: var(--not-degraded);
+        }
+
+        .degradation-1 {
+            background-color: var(--degraded-slight);
+        }
+
+        .degradation-2 {
+            background-color: var(--degraded-severe);
+        }
+
+        .degradation-unknown {
+            background-color: var(--unknown);
+        }
+
+        .active-indicator {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background-color: #10a37f;
+        }
+
+        .loading {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+        }
+
+        .error {
+            padding: 20px;
+            text-align: center;
+            color: #e74c3c;
+        }
+
+        .no-accounts {
+            padding: 40px 20px;
+            text-align: center;
+            color: #7f8c8d;
+        }
+
+        .no-accounts-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #bdc3c7;
+        }
+
+        .no-accounts-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+
+        .no-accounts-message {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            max-width: 320px;
+            margin: 0 auto;
+        }
+
+        .footer {
+            padding: 16px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            background-color: #f9f9f9;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.6;
+            }
+            50% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0.6;
+            }
+        }
+
+        .loading {
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+
+        /* Toast notifications */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            font-size: 0.9rem;
+            min-width: 250px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .toast.success {
+            background-color: #10a37f;
+        }
+
+        .toast.error {
+            background-color: #e74c3c;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .countdown {
+            display: inline-block;
+            margin-left: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Account Switcher</h1>
+    </div>
+    <div id="content">
+        <div class="loading">Loading accounts...</div>
+    </div>
+    <div class="footer">
+        <p>Use this tool to switch between your accounts</p>
+    </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+    // Helper function to get cookie value
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return window.decodeURIComponent(parts.pop().split(';').shift());
+        return null;
+    }
+
+    // Main state object - get current account from cookie at initialization
+    const state = {
+        accounts: [],
+        currentAccount: getCookie('account_id') || '',
+        isLoading: true,
+        error: null
+    };
+
+    // Toast notification helper functions
+    function showToast(message, type = '', duration = 3000) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast show';
+
+        if (type) {
+            toast.classList.add(type);
+        }
+
+        setTimeout(() => {
+            hideToast();
+        }, duration);
+
+        return toast;
+    }
+
+    function hideToast() {
+        const toast = document.getElementById('toast');
+        toast.classList.remove('show');
+    }
+
+    function showCountdownToast(message, seconds, type = '', callback) {
+        const toast = document.getElementById('toast');
+
+        // Create the base message element
+        const messageSpan = document.createElement('span');
+        messageSpan.innerHTML = message;
+
+        // Create the countdown element
+        const countdownSpan = document.createElement('span');
+        countdownSpan.className = 'countdown';
+        countdownSpan.textContent = seconds + " seconds";
+
+        // Clear the toast and add the new elements
+        toast.innerHTML = '';
+        toast.appendChild(messageSpan);
+        toast.appendChild(countdownSpan);
+
+        toast.className = 'toast show';
+        if (type) {
+            toast.classList.add(type);
+        }
+
+        // Update the countdown every second
+        let remainingSeconds = seconds;
+        const interval = setInterval(() => {
+            remainingSeconds--;
+            countdownSpan.textContent = remainingSeconds + " seconds";
+
+            if (remainingSeconds <= 0) {
+                clearInterval(interval);
+                hideToast();
+                if (callback && typeof callback === 'function') {
+                    callback();
+                }
+            }
+        }, 1000);
+    }
+
+    // Check if the current account from cookie exists in account list
+    function checkCurrentAccountExists() {
+        if (!state.currentAccount) return;
+
+        const accountExists = state.accounts.some(account => account.id === state.currentAccount);
+
+        if (!accountExists) {
+            showToast(`Account "${getCookie('account_email')}" is unavailable. Please select another account.`, 'error', 5000);
+            state.currentAccount = ''; // Reset current account
+        }
+    }
+
+    // Render the account list
+    function renderAccounts() {
+        const contentElement = document.getElementById('content');
+
+        if (state.error) {
+            contentElement.innerHTML = `<div class="error">${state.error}</div>`;
+            return;
+        }
+
+        if (state.isLoading) {
+            contentElement.innerHTML = `<div class="loading">Loading accounts...</div>`;
+            return;
+        }
+
+        // Check if there are no accounts available
+        if (state.accounts.length === 0) {
+            contentElement.innerHTML = `
+                <div class="no-accounts">
+                    <div class="no-accounts-icon">📭</div>
+                    <div class="no-accounts-title">No Accounts Available</div>
+                    <div class="no-accounts-message">
+                        There are currently no accounts available. Please check back later or contact me if this issue persists.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Start building the account list HTML
+        let html = '<div class="account-list">';
+
+        state.accounts.sort((a, b) => {
+            let aScore = a.degradation;
+            let bScore = b.degradation;
+            if (aScore === undefined) {
+                aScore = 99;
+            }
+            if (bScore === undefined) {
+                bScore = 99;
+            }
+
+            return aScore - bScore;
+        }).forEach(account => {
+            const isActive = account.id === state.currentAccount;
+            const planClass = 'plan-' + account.labels.plan;
+
+            // Determine degradation level
+            let degradationText = 'Status unknown';
+            let level = 'unknown';
+
+            if (typeof account.degradation == "number") {
+                level = account.degradation;
+            }
+
+            if (level === 0) {
+                degradationText = 'Normal';
+            } else if (level === 1) {
+                degradationText = 'Slightly degraded';
+            } else if (level === 2) {
+                degradationText = 'Severely degraded';
+            }
+
+            html += `
+                <div class="account-item ${isActive ? 'active' : ''}" data-account="${account.id}">
+                    ${isActive ? '<div class="active-indicator"></div>' : ''}
+                    <div class="account-avatar">
+                        <img src="${account.avatar}" alt="${account.name}">
+                    </div>
+                    <div class="account-info">
+                        <div class="account-name">${account.name}</div>
+                        <div class="account-email">${account.email || account.name}</div>
+                        <div class="status-wrapper">
+                            <span class="plan-badge ${planClass}">${account.labels.plan}</span>
+                            <div class="degradation-indicator">
+                                <div class="degradation-dot degradation-${level}"></div>
+                                <span>${degradationText}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        contentElement.innerHTML = html;
+
+        // Add event listeners for account switching
+        document.querySelectorAll('.account-item').forEach(item => {
+            item.addEventListener('click', handleAccountSwitch);
+        });
+    }
+
+    // Handle account switch
+    async function handleAccountSwitch(event) {
+        const accountElement = event.currentTarget;
+        const accountId = accountElement.dataset.account;
+
+        try {
+            const response = await fetch(`/switch-account/${encodeURIComponent(accountId)}`);
+
+            if (response.status === 200) {
+                state.currentAccount = accountId;
+                // Update the UI
+                renderAccounts();
+
+                // Clear cache which is used to store the conversation list
+                localStorage.clear();
+
+                // Show countdown toast and redirect
+                showCountdownToast(`Account "${getCookie('account_email')}" selected.<br/>Navigating back in`, 3, 'success', () => {
+                    window.location.href = '/';
+                });
+            } else {
+                throw new Error(`Failed to switch account. Status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error switching account:', error);
+            showToast(`Error switching to account ${accountId}: ${error.message}`, 'error');
+        }
+    }
+
+    // Fetch all required data
+    async function fetchData() {
+        state.isLoading = true;
+        state.error = null;
+        renderAccounts();
+
+        try {
+            // Fetch accounts
+            const accountsResponse = await fetch('/accounts');
+            if (!accountsResponse.ok) {
+                throw new Error(`Failed to fetch accounts. Status: ${accountsResponse.status}`);
+            }
+            state.accounts = await accountsResponse.json();
+
+            // Success! Update the UI
+            state.isLoading = false;
+
+            // Check if current account exists in the account list
+            checkCurrentAccountExists();
+
+            renderAccounts();
+
+        } catch (error) {
+            console.error('Error loading data:', error);
+            state.error = `Error loading accounts: ${error.message}`;
+            state.isLoading = false;
+            renderAccounts();
+        }
+    }
+
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', fetchData);
+</script>
+</body>
+</html>

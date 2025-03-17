@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Admin Console - Accounts</title>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .cookie-autofill-btn {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="/accounts">Admin Console</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/logout">Logout</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>ChatGPT Accounts</h2>
+        <button class="btn btn-success" onclick="openAccountModal('add')">
+            <i class="bi bi-plus-circle"></i> Add Account
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Proxy</th>
+                        <th>Plan</th>
+                        <th>Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody id="accountsTableBody">
+                    <!-- Account rows will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+            <div id="noAccountsMessage" class="text-center py-4 d-none">
+                <p class="text-muted">No accounts found. Click "Add Account" to create one.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unified Account Modal (Used for both Add and Edit) -->
+<div class="modal fade" id="accountModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="accountModalTitle">Account Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="accountForm">
+                    <input type="hidden" id="originalAccountName" name="originalAccountName">
+                    <input type="hidden" id="modalMode" name="modalMode">
+
+                    <div class="mb-3">
+                        <label for="accountName" class="modal-label">Name</label>
+                        <input type="text" class="form-control" id="accountName" name="accountName">
+                    </div>
+                    <div class="mb-3">
+                        <label for="accountProxy" class="modal-label">Proxy</label>
+                        <input type="text" class="form-control" id="accountProxy" name="accountProxy">
+                    </div>
+                    <div class="mb-3">
+                        <label for="accountAccessToken" class="modal-label">Access Token</label>
+                        <input type="text" class="form-control" id="accountAccessToken" name="accountAccessToken">
+                    </div>
+                    <div class="mb-3">
+                        <label for="accountCookies" class="modal-label">Cookies</label>
+                        <textarea class="form-control" id="accountCookies" name="accountCookies" rows="3"></textarea>
+                        <button type="button" id="cookieAutofillBtn" class="btn btn-outline-primary btn-sm cookie-autofill-btn">
+                            <i class="bi bi-magic"></i> Auto-fill fields from cookies
+                        </button>
+                    </div>
+                    <div class="mb-3">
+                        <label for="accountPlan" class="modal-label">Plan</label>
+                        <select class="form-select" id="accountPlan" name="accountPlan">
+                            <option value="pro">Pro</option>
+                            <option value="plus">Plus</option>
+                            <option value="free">Free</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveAccountBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Account Confirmation Modal -->
+<div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the account "<span id="deleteAccountName"></span>"?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container for Notifications -->
+<div class="toast-container">
+    <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto" id="toastTitle">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toastMessage"></div>
+    </div>
+</div>
+
+<script src="/js/accounts.js"></script>
+</body>
+</html>

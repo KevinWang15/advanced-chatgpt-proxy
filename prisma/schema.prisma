@@ -1,0 +1,130 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin-arm64", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Token {
+  token              String               @id
+  createdAt          DateTime             @default(now()) @map("created_at")
+  webhookUrl         String?              @map("webhook_url")
+  isManaged          Boolean              @default(false) @map("is_managed")
+  conversationAccess ConversationAccess[]
+  gizmoAccess        GizmoAccess[]
+
+  @@map("tokens")
+}
+
+model ConversationAccess {
+  token          String
+  conversationId String   @map("conversation_id")
+  accessType     String   @map("access_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+  token_relation Token    @relation(fields: [token], references: [token], onDelete: Cascade)
+
+  @@id([token, conversationId])
+  @@map("conversation_access")
+}
+
+model GizmoAccess {
+  token          String
+  gizmoId        String   @map("gizmo_id")
+  accessType     String   @map("access_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+  token_relation Token    @relation(fields: [token], references: [token], onDelete: Cascade)
+
+  @@id([token, gizmoId])
+  @@map("gizmo_access")
+}
+
+model Conversation {
+  id               String   @id @map("conversation_id")
+  accountName      String   @map("account_name")
+  userAccessToken  String?  @map("user_access_token")
+  conversationData Json?    @map("conversation_data")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  gizmoId          String?  @map("gizmo_id")
+
+  @@index([accountName])
+  @@index([userAccessToken])
+  @@index([userAccessToken, updatedAt])
+  @@index([gizmoId])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("conversations")
+}
+
+model ChatGPTAccount {
+  id              String   @id @default(uuid())
+  realAccountName String   @unique @map("real_account_name")
+  fakeEmail       String   @unique @map("fake_email")
+  fakeName        String   @map("fake_name")
+  fakeAvatar      String   @map("fake_avatar")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("chatgpt_accounts")
+}
+
+model DegradationCheckResult {
+  id                        String   @id @default(uuid())
+  accountName               String   @map("account_name")
+  knowledgeCutoffDateString String   @map("knowledge_cutoff_date_string")
+  knowledgeCutoffTimestamp  Int      @map("knowledge_cutoff_timestamp")
+  degradation               Int
+  checkTime                 DateTime @default(now()) @map("check_time")
+
+  @@index([accountName, checkTime(sort: Desc)])
+  @@map("degradation_check_results")
+}
+
+model AccountUsage {
+  id          String   @id @default(uuid())
+  accountName String   @map("account_name")
+  model       String
+  timestamp   BigInt   @map("timestamp")
+  count       Int      @default(1)
+  loadFactor  Float    @default(1) @map("load_factor")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([accountName, model, timestamp])
+  @@index([accountName])
+  @@index([timestamp])
+  @@map("account_usage")
+}
+
+model DeepResearchTracker {
+  asyncTaskId     String   @id @map("async_task_id")
+  userAccessToken String   @map("user_access_token")
+  conversationId  String   @map("conversation_id")
+  status          String   @default("pending")
+  version         String?  @map("version")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([userAccessToken])
+  @@index([conversationId])
+  @@index([status])
+  @@map("deep_research_tracker")
+}
+
+model Gizmo {
+  id              String    @id @map("gizmo_id")
+  userAccessToken String    @map("user_access_token")
+  accountName     String    @map("account_name")
+  gizmoData       Json      @map("gizmo_data")
+  shortUrl        String?   @map("short_url")
+  name            String?   @map("name")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastInteracted  DateTime? @map("last_interacted")
+
+  @@index([userAccessToken])
+  @@index([accountName])
+  @@map("gizmos")
+}
