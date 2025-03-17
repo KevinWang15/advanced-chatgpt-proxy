@@ -1,0 +1,14 @@
+{
+  "name": "chatgpt-degradation-monitor",
+  "version": "1.0.0",
+  "description": "A Node.js application to monitor ChatGPT degradation via Prometheus",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.6.7"
+  }
+}
+
