@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>OpenAI Account Switcher</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f0f0f0;
+        }
+        header {
+            background: #444;
+            color: #fff;
+            padding: 1em;
+            text-align: center;
+        }
+        .container {
+            margin: 2em auto;
+            padding: 1em;
+            max-width: 600px;
+            background: #fff;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin-top: 0;
+            text-align: center;
+        }
+        .account-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .account-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75em 1em;
+            margin-bottom: 0.5em;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fafafa;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .account-item:hover {
+            background: #f3f3f3;
+        }
+        .account-item.active {
+            background: #ddf3ff;
+            border-color: #bbe0ff;
+        }
+        .account-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .account-name {
+            font-weight: bold;
+            margin: 0;
+        }
+        .badges {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .badge-plan, .badge-degrade {
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 0.8em;
+            font-weight: bold;
+            display: inline-block;
+            min-width: 50px;
+            text-align: center;
+        }
+        /* Plan badges */
+        .badge-pro {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        }
+        .badge-plus {
+            background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+        }
+        .badge-unknown-plan {
+            background: #999;
+        }
+        /* Degradation badges */
+        .badge-degrade-0 {
+            background: #4caf50; /* green */
+        }
+        .badge-degrade-1 {
+            background: #ffeb3b; /* yellow */
+            color: #333;
+        }
+        .badge-degrade-2 {
+            background: #f44336; /* red */
+        }
+        .badge-degrade-unknown {
+            background: #999; /* gray */
+        }
+        .switch-button {
+            margin-left: 1em;
+            background: #007bff;
+            color: #fff;
+            border: none;
+            padding: 0.5em 1em;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .switch-button:hover {
+            background: #0056cc;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h2>OpenAI Account Switcher</h2>
+</header>
+<div class="container">
+    <h1>Accounts</h1>
+    <ul id="accountList" class="account-list"></ul>
+</div>
+
+<script>
+    // Helper function to parse a specific cookie
+    function getCookieValue(name) {
+        const cookieString = document.cookie;
+        if (!cookieString) return null;
+        const cookies = cookieString.split(';').map(c => c.trim());
+        for (let c of cookies) {
+            if (c.startsWith(name + '=')) {
+                return c.substring(name.length + 1);
+            }
+        }
+        return null;
+    }
+
+    // Parse the metrics text to get degradation info per account
+    function parseDegradations(metricsText) {
+        const degradationMap = {};
+        const lines = metricsText.split('\n');
+        for (let line of lines) {
+            line = line.trim();
+            // Example line:
+            // chatgpt_degradation{account_name="phebecoke9169@hotmail.com",plan="plus"} 1
+            if (line.startsWith('chatgpt_degradation{')) {
+                const match = line.match(/chatgpt_degradation\{account_name="([^"]+)",plan="([^"]+)"\}\s+(\d+)/);
+                if (match) {
+                    const accountName = match[1];
+                    const degradeLevel = parseInt(match[3], 10);
+                    degradationMap[accountName] = degradeLevel;
+                }
+            }
+        }
+        return degradationMap;
+    }
+
+    // Return the corresponding class for plan badge
+    function getPlanBadgeClass(plan) {
+        switch (plan) {
+            case 'pro':
+                return 'badge-pro';
+            case 'plus':
+                return 'badge-plus';
+            default:
+                return 'badge-unknown-plan';
+        }
+    }
+
+    // Return the corresponding text for plan
+    function getPlanText(plan) {
+        if (plan === 'pro') return 'Pro';
+        if (plan === 'plus') return 'Plus';
+        return 'Unknown';
+    }
+
+    // Return the corresponding class for degradation level
+    function getDegradeBadgeClass(level) {
+        switch (level) {
+            case 0:
+                return 'badge-degrade-0';
+            case 1:
+                return 'badge-degrade-1';
+            case 2:
+                return 'badge-degrade-2';
+            default:
+                return 'badge-degrade-unknown';
+        }
+    }
+
+    // Return textual representation of degradation
+    function getDegradeText(level) {
+        switch (level) {
+            case 0:
+                return 'Healthy';
+            case 1:
+                return 'Slightly Degraded';
+            case 2:
+                return 'Severely Degraded';
+            default:
+                return 'Unknown';
+        }
+    }
+
+    // Switch account by sending GET request, then reloading on success
+    async function switchAccount(accountName) {
+        try {
+            const response = await fetch(`/switch-account/${accountName}`, { method: 'GET' });
+            if (response.ok) {
+                // Reload the page after successful switch
+                location.reload();
+            } else {
+                alert(`Failed to switch account to ${accountName}`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert(`Error switching account to ${accountName}`);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        let accounts = [];
+        let degradationData = {};
+
+        // Fetch accounts
+        try {
+            const accountsRes = await fetch('/accounts');
+            accounts = await accountsRes.json();
+        } catch (err) {
+            console.error('Error fetching accounts:', err);
+        }
+
+        // Fetch metrics to parse degradation info
+        try {
+            const metricsRes = await fetch('/metrics');
+            const metricsText = await metricsRes.text();
+            degradationData = parseDegradations(metricsText);
+        } catch (err) {
+            console.error('Error fetching /metrics:', err);
+        }
+
+        // Read current account from cookie
+        const currentAccount = getCookieValue('account_name');
+
+        // Populate the account list
+        const accountListEl = document.getElementById('accountList');
+
+        accounts.forEach(acc => {
+            const li = document.createElement('li');
+            li.className = 'account-item';
+
+            // Highlight if this is the current account
+            if (acc.name === currentAccount) {
+                li.classList.add('active');
+            }
+
+            const accountInfoDiv = document.createElement('div');
+            accountInfoDiv.className = 'account-info';
+
+            const accountNameEl = document.createElement('p');
+            accountNameEl.className = 'account-name';
+            accountNameEl.textContent = acc.name;
+
+            const badgesDiv = document.createElement('div');
+            badgesDiv.className = 'badges';
+
+            // Plan badge
+            const planBadge = document.createElement('span');
+            planBadge.className = `badge-plan ${getPlanBadgeClass(acc.labels.plan)}`;
+            planBadge.textContent = getPlanText(acc.labels.plan);
+            badgesDiv.appendChild(planBadge);
+
+            // Degradation badge
+            const degradeLevel = degradationData[acc.name];
+            const degradeBadge = document.createElement('span');
+            degradeBadge.className = `badge-degrade ${getDegradeBadgeClass(degradeLevel)}`;
+            degradeBadge.textContent = getDegradeText(degradeLevel);
+            badgesDiv.appendChild(degradeBadge);
+
+            accountInfoDiv.appendChild(accountNameEl);
+            accountInfoDiv.appendChild(badgesDiv);
+
+            li.appendChild(accountInfoDiv);
+
+            // Switch button (if not the current account)
+            if (acc.name !== currentAccount) {
+                const switchBtn = document.createElement('button');
+                switchBtn.className = 'switch-button';
+                switchBtn.textContent = 'Switch';
+                switchBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    switchAccount(acc.name);
+                });
+                li.appendChild(switchBtn);
+            }
+
+            // Make the entire row clickable for switching (optional):
+            // li.addEventListener('click', () => switchAccount(acc.name));
+
+            accountListEl.appendChild(li);
+        });
+    });
+</script>
+</body>
+</html>

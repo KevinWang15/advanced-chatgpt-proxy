@@ -1,0 +1,20 @@
+[
+  {
+    "targets": [
+      "site-a.com"
+    ],
+    "labels": {
+      "env": "production",
+      "plan": "pro"
+    }
+  },
+  {
+    "targets": [
+      "site-b.com"
+    ],
+    "labels": {
+      "env": "production",
+      "plan": "plus"
+    }
+  }
+]
