@@ -1,0 +1,10 @@
+node_modules
+cache
+auth.db
+.idea
+rootCA*
+config.js
+chrome-profiles
+
+x.js
+config.bak.js
