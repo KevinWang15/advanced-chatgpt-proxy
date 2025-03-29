@@ -9,7 +9,7 @@ const {
     handleRobotsTxt,
     handleBackendApiMe,
     handleBackendApiCreatorProfile,
-    handleStopGeneration, handleGetModels
+    handleStopGeneration, handleGetModels, handleChatRequirements
 } = require('./reverseproxy_specialhandlers');
 const cookieParser = require('cookie-parser');
 const {
@@ -129,6 +129,11 @@ function startReverseProxy() {
 
                 if (parsedUrl.pathname.endsWith('/backend-api/subscriptions')) {
                     handleSubscriptions(req, res);
+                    return;
+                }
+
+                if (parsedUrl.pathname.endsWith('/backend-api/sentinel/chat-requirements')) {
+                    handleChatRequirements(req, res);
                     return;
                 }
 

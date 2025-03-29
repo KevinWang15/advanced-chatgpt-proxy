@@ -33,6 +33,24 @@ function handleSubscriptions(req, res) {
     res.end(JSON.stringify(subscriptionData));
 }
 
+function handleChatRequirements(req, res) {
+    res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': config.server.url,
+        'access-control-allow-credentials': 'true',
+    });
+
+    res.end(JSON.stringify({
+        "persona": "chatgpt-paid",
+        "turnstile": {
+            "required": false
+        },
+        "proofofwork": {
+            "required": false
+        }
+    }));
+}
+
 function handleRobotsTxt(req, res) {
     logger.info('Serving robots.txt to ban all crawlers');
     res.writeHead(200, {'Content-Type': 'text/plain'});
@@ -147,5 +165,6 @@ module.exports = {
     handleBackendApiMe,
     handleBackendApiCreatorProfile,
     handleStopGeneration,
+    handleChatRequirements,
 };
 
