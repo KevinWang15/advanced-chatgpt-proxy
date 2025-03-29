@@ -82,6 +82,11 @@ function handleNetwork(data) {
         return;
     }
 
+    // No one is listening for this worker, skip
+    if (!responseHandlers[workerId]) {
+        return;
+    }
+
     // Update last seen timestamp
     workers[workerId].lastSeen = Date.now();
 

@@ -26,7 +26,7 @@ function initialize() {
 
     // Set up reconnection interval
     setTimeout(() => {
-        setupReconnection();
+        registerAsWorker();
     }, 5000); // wait for chatgpt to load before trying to connect
 
     // Check if we've been busy for over 30 minutes and reload if so
@@ -96,23 +96,6 @@ function updateStatusOverlay() {
         <div><b>Status:</b> ${busyIndicator}</div>
         <div style="font-size: 10px; margin-top: 4px; opacity: 0.8;">Last: ${workerStatus.lastAction}</div>
     `;
-}
-
-// Set up reconnection interval
-function setupReconnection() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-    }
-    reconnectInterval = setInterval(() => {
-        if (!workerStatus.connected) {
-            console.log('Attempting to register and reconnect...');
-            workerStatus.lastAction = 'Reconnecting';
-            updateStatusOverlay();
-
-            workerId = null;
-            registerAsWorker();
-        }
-    }, 1000);
 }
 
 // Function to unregister the worker from the server
