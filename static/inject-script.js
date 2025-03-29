@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         characterData: true
     });
 
-    addScreenshotFeature();
+    // addScreenshotFeature();
 })
 
 function addStyles() {

@@ -3,6 +3,7 @@
 * 一键截图ChatGPT
 * 如果上一条是failed reasoning, 然后你发送了一条，然后你编辑了那条发送的，那搞不定
 * 稳定性 还需要 加强
+* 稳定性: 连续发送速度快了好像会出问题（一直发送1)
 * 稳定性: 有时好像是conversation消息发不到server，或者server不能通知到worker
 * 稳定性: 第一个消息失败，用户点击重试按钮，无法重试
 * deep research 的图片
