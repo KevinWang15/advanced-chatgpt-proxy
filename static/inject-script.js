@@ -2,8 +2,20 @@
     const originalFetch = window.fetch;
 
     window.fetch = async function (...args) {
-
         const [input, init = {}] = args;
+
+        // Check for the specific URL pattern
+        if (typeof input === 'string' && input.includes('ces/statsc/flush')) {
+            // Mock a 200 response with empty JSON object
+            return Promise.resolve(new Response('{}', {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }));
+        }
+
+        // Original abort signal handling
         if (init.signal) {
             init.signal.addEventListener('abort', (e) => {
                 if (args[1].method === "POST" && (args[0].endsWith("/backend-api/conversation") || args[0].endsWith("/backend-alt/conversation"))) {
@@ -16,11 +28,13 @@
             });
         }
 
+        // Enhancement for conversation API calls
         if (args[1].method === "POST" && (args[0].endsWith("/backend-api/conversation") || args[0].endsWith("/backend-alt/conversation"))) {
             const enhancedBody = JSON.parse(args[1].body);
             enhancedBody["path_to_message"] = Array.from(document.querySelectorAll("div[data-message-id]")).map(x => x.getAttribute('data-message-id'));
             args[1].body = JSON.stringify(enhancedBody);
         }
+
         return originalFetch.apply(this, args);
     };
 })()

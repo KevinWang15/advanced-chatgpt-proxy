@@ -3,13 +3,20 @@ const config = require('../config');
 const {sockets} = require("../state/state");
 const fs = require("node:fs");
 
-function handleStopGeneration(conversation) {
+function handleStopGeneration(conversation,req,res) {
     Object.keys(sockets).forEach((workerId) => {
         sockets[workerId].send(JSON.stringify({
             type: 'stop_generation',
             conversationId: conversation,
         }));
     })
+
+    res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': config.server.url,
+        'access-control-allow-credentials': 'true',
+    });
+    res.end(JSON.stringify({}));
 }
 
 function handleSubscriptions(req, res) {

@@ -1,17 +1,23 @@
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 const url = require('url');
+const http = require('http'); // still used by some references or config, can remove if unused
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const axios = require('axios');
+
 const config = require('../config');
-const {logger} = require('../utils/utils');
+const { logger } = require('../utils/utils');
 const {
     handleSubscriptions,
     handleRobotsTxt,
     handleBackendApiMe,
     handleBackendApiCreatorProfile,
-    handleStopGeneration, handleGetModels, handleChatRequirements
+    handleStopGeneration,
+    handleGetModels,
+    handleChatRequirements
 } = require('./reverseproxy_specialhandlers');
-const cookieParser = require('cookie-parser');
+
 const {
     verifyToken,
     generateToken,
@@ -20,169 +26,196 @@ const {
     listUserConversations,
     addConversationAccess
 } = require('./auth');
-const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require("../consts");
-const {assignTaskToWorker} = require("./worker");
-const axios = require('axios');
-const {httpsProxyAgent} = require("../utils/tunnel");
+
+const { mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy } = require('../consts');
+const { assignTaskToWorker } = require('./worker');
+const { httpsProxyAgent } = require('../utils/tunnel');
 
 const cookieMaxAge = 100 * 365 * 24 * 60 * 60 * 1000;
 
 function startReverseProxy() {
-    // Create HTTP server
-    const server = http.createServer((req, res) => {
-        // serve static
-        if (req.url.length > 5 && !req.url.includes("..")) {
-            const filePath = path.join(__dirname, '../static', req.url);
+    const app = express();
+
+    // Use cookie parser globally
+    app.use(cookieParser());
+
+    // Because we need the raw body for streaming and large JSON,
+    // we do NOT use a standard body-parser here with a JSON limit.
+    // Instead, we collect raw data in the fallback route (same as original).
+    // If needed, you can add other body parsing for smaller routes here.
+
+    /**
+     * Handle GET /start - same logic as original
+     */
+    app.get('/start', async (req, res) => {
+        try {
+            // Check if user is already authenticated
+            let isValidToken = false;
             try {
+                isValidToken = await verifyToken(req.cookies?.auth_token);
+            } catch (e) {
+                /* ignore */
+            }
+
+            if (isValidToken) {
+                res.writeHead(302, { 'Location': '/' });
+                return res.end();
+            }
+
+            const passcode = req.query.passcode;
+            if (passcode !== config.auth.passcode) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Invalid passcode' }));
+            }
+
+            // Generate a new token
+            const token = generateToken();
+
+            // Save token to database
+            await saveToken(token);
+
+            // Set cookie
+            res.setHeader('Set-Cookie', `auth_token=${token}; Max-Age=${cookieMaxAge}; HttpOnly; SameSite=Lax`);
+
+            // Redirect to home
+            res.writeHead(302, { 'Location': '/' });
+            res.end();
+        } catch (error) {
+            console.error('Error creating new user:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+    });
+
+    /**
+     * Handle all other routes (the "fallback") exactly as in original code
+     */
+    app.all('*', async (req, res) => {
+        try {
+            // replicate your original "serve static" logic
+            if (req.url.length > 5 && !req.url.includes('..')) {
+                const filePath = path.join(__dirname, '../static', req.url);
                 if (fs.existsSync(filePath)) {
+                    // Serve static file if found
+                    res.writeHead(200, { 'Content-Type': 'text/plain' });
                     fs.createReadStream(filePath).pipe(res);
-                    res.writeHead(200, {'Content-Type': 'text/plain'});
                     return;
                 }
-            } catch (e) {
-                console.log(e, req.url);
             }
-        }
-
-        cookieParser()(req, res, async () => {
 
             // Parse the requested URL
             const parsedUrl = url.parse(req.url, true);
 
-            // Skip auth check for start endpoint
-            if (parsedUrl.pathname === '/start') {
+            // Everything beyond /start requires auth
+            // --> We replicate your original token verification
+            // and banned path logic
+            const token = req.cookies?.auth_token;
 
-                let isValidToken = false;
-                try {
-                    isValidToken = await verifyToken(req.cookies?.auth_token);
-                } catch (e) {
-                }
+            // Check if path is banned
+            const isBannedPath = bannedPaths.some((bp) => parsedUrl.pathname.match(new RegExp(bp)));
+            const isOperationToAllConversations =
+                req.method !== 'GET' && parsedUrl.pathname.endsWith('backend-api/conversations');
+            if (isBannedPath || isOperationToAllConversations) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Forbidden' }));
+            }
 
-                if (isValidToken) {
-                    res.writeHead(302, {'Location': '/'});
-                    res.end();
-                    return;
-                }
+            // Verify token
+            const isValid = await verifyToken(token);
+            if (!isValid) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Authentication required' }));
+            }
 
-                const {passcode} = parsedUrl.query;
+            // Handle special endpoints from the original code:
 
-                // Check if passcode matches the configured passcode
-                if (passcode !== config.auth.passcode) {
-                    res.writeHead(403, {'Content-Type': 'application/json'});
-                    res.end(JSON.stringify({error: `Invalid passcode`}));
-                    return;
-                }
-
-                try {
-                    // Generate a new token
-                    const token = generateToken();
-
-                    // Save token to database
-                    await saveToken(token);
-
-                    // Set cookie with token
-                    res.setHeader('Set-Cookie', `auth_token=${token}; Max-Age=${cookieMaxAge}; HttpOnly; SameSite=Lax`);
-
-                    // Redirect to home page
-                    res.writeHead(302, {'Location': '/'});
-                    res.end();
-                } catch (error) {
-                    console.error('Error creating new user:', error);
-                    res.status(500).json({error: 'Internal server error'});
-                }
+            // 1) Stop generation
+            if (
+                req.method === 'POST' &&
+                parsedUrl.pathname.startsWith('/stop-generation/')
+            ) {
+                const jobId = parsedUrl.pathname.split('/').pop();
+                handleStopGeneration(jobId,req,res);
                 return;
             }
 
-            // Verify authentication token for all other endpoints
-            const token = req.cookies?.auth_token;
-
-            try {
-                const isBannedPath = bannedPaths.some(path => parsedUrl.pathname.match(new RegExp(path)));
-                const isOperationToAllConversations = req.method !== 'GET' && parsedUrl.pathname.endsWith("backend-api/conversations");
-                if (isBannedPath || isOperationToAllConversations) {
-                    res.writeHead(401, {'Content-Type': 'application/json'});
-                    res.end(JSON.stringify({error: 'Forbidden'}));
-                    return false;
-                }
-
-                const isValid = await verifyToken(token);
-                if (!isValid) {
-                    res.writeHead(403, {'Content-Type': 'application/json'});
-                    res.end(JSON.stringify({error: 'Authentication required'}));
-                    return;
-                }
-
-                // Handle streaming conversation endpoints
-                if (req.method === 'POST' &&
-                    (parsedUrl.pathname === '/backend-api/conversation' ||
-                        parsedUrl.pathname === '/backend-alt/conversation')) {
-                    handleConversationStreaming(req, res);
-                    return;
-                }
-
-                // Handle stop generation
-                if (req.method === 'POST' &&
-                    (parsedUrl.pathname.startsWith("/stop-generation/"))) {
-                    handleStopGeneration(parsedUrl.pathname.split("/").pop());
-                    return;
-                }
-
-                if (parsedUrl.pathname.endsWith('/backend-api/subscriptions')) {
-                    handleSubscriptions(req, res);
-                    return;
-                }
-
-                if (parsedUrl.pathname.endsWith('/backend-api/sentinel/chat-requirements')) {
-                    handleChatRequirements(req, res);
-                    return;
-                }
-
-                if (req.url === '/robots.txt') {
-                    handleRobotsTxt(req, res);
-                    return;
-                }
-
-                if (req.url.startsWith('/backend-api/models') && req.method === "GET") {
-                    handleGetModels(req, res);
-                    return;
-                }
-
-                // Check if this is a special route that should use the secondary proxy
-                if (isSpecialRoute(req.method, parsedUrl.pathname)) {
-                    const targetUrl = `https://chatgpt.com${parsedUrl.pathname}`;
-                    handleSpecialProxy(req, res, targetUrl);
-                    return;
-                }
-
-                const {targetHost, targetPath} = determineTarget(req.url);
-                if (shouldMockSuccess(targetHost, targetPath)) {
-                    sendMockSuccessResponse(res);
-                    return;
-                }
-
-                // Proxy the request
-                proxyRequest(req, res, targetHost, targetPath);
-            } catch (error) {
-                logger.error(`Authentication error: ${error.message}`);
-                res.writeHead(500, {'Content-Type': 'application/json'});
-                res.end(JSON.stringify({error: 'Internal server error'}));
+            // 2) Subscriptions
+            if (parsedUrl.pathname.endsWith('/backend-api/subscriptions')) {
+                return handleSubscriptions(req, res);
             }
-        });
+
+            // 3) /backend-api/sentinel/chat-requirements
+            if (parsedUrl.pathname.endsWith('/backend-api/sentinel/chat-requirements')) {
+                console.log('got chat requirements');
+                return handleChatRequirements(req, res);
+            }
+
+            // 4) GET /backend-api/models
+            if (parsedUrl.pathname.startsWith('/backend-api/models') && req.method === 'GET') {
+                return handleGetModels(req, res);
+            }
+
+            // 5) /robots.txt
+            if (req.url === '/robots.txt') {
+                return handleRobotsTxt(req, res);
+            }
+
+            // 6) conversation streaming
+            //    (both /backend-api/conversation and /backend-alt/conversation)
+            if (
+                req.method === 'POST' &&
+                (parsedUrl.pathname === '/backend-api/conversation' ||
+                    parsedUrl.pathname === '/backend-alt/conversation')
+            ) {
+                return handleConversationStreaming(req, res);
+            }
+
+            // If not handled yet, this is a normal request that we pass to the proxy logic
+            const { targetHost, targetPath } = determineTarget(req.url);
+
+            if (shouldMockSuccess(targetHost, targetPath)) {
+                // Return the mock success JSON
+                res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'access-control-allow-credentials': 'true',
+                    'access-control-allow-origin': config.server.url
+                });
+                return res.end(JSON.stringify({ success: true }));
+            }
+
+            // Finally, pass everything else to standard proxy
+            await proxyRequest(req, res, targetHost, targetPath);
+        } catch (err) {
+            logger.error(`Error in fallback route: ${err.message}`);
+            if (!res.headersSent) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Internal server error' }));
+            }
+        }
     });
 
-    server.listen(config.server.port, config.server.host, () => {
+    /**
+     * Start listening exactly as in your original code
+     */
+    app.listen(config.server.port, config.server.host, () => {
         logger.info(`Reverse proxy running at ${config.server.url}`);
-        logger.info(`Streaming conversation endpoints active at /backend-api/conversation and /backend-alt/conversation`);
-        logger.info(`Blocking requests to: ${mockSuccessDomains.join(', ')} and paths containing: ${mockSuccessPaths.join(', ')}`);
+        logger.info(
+            `Streaming conversation endpoints active at /backend-api/conversation and /backend-alt/conversation`
+        );
+        logger.info(
+            `Blocking requests to: ${mockSuccessDomains.join(', ')} and paths containing: ${mockSuccessPaths.join(', ')}`
+        );
     });
 }
 
+/**
+ * -- Original helper code, transplanted verbatim --
+ */
 
 function determineTarget(requestUrl) {
-    let targetHost = "chatgpt.com";
+    let targetHost = 'chatgpt.com';
     let targetPath = requestUrl;
 
-    // Route to different domains based on path patterns
     if (requestUrl.includes('assets/')) {
         targetHost = 'cdn.oaistatic.com';
     } else if (requestUrl.includes('file-') && !requestUrl.includes('backend-api')) {
@@ -194,40 +227,32 @@ function determineTarget(requestUrl) {
         targetPath = targetPath.replace('sandbox/', '');
     }
 
-    return {targetHost, targetPath};
+    return { targetHost, targetPath };
 }
 
 function shouldMockSuccess(targetHost, targetPath) {
     if (mockSuccessDomains.includes(targetHost)) {
         return true;
     }
-
     for (const blockedPath of mockSuccessPaths) {
         if (targetPath.includes(blockedPath)) {
             return true;
         }
     }
-
     return false;
 }
 
-function sendMockSuccessResponse(res) {
-    res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'access-control-allow-credentials': 'true',
-        'access-control-allow-origin': config.server.url
-    });
-    res.end(JSON.stringify({success: true}));
-}
-
-
+/**
+ * The main proxy handler
+ */
 async function proxyRequest(req, res, targetHost, targetPath) {
     try {
         // Prepare headers for the outgoing request
-        const headers = {...req.headers};
+        const headers = { ...req.headers };
         delete headers.host;
         headers.host = targetHost;
         headers['accept-encoding'] = 'identity';
+
 
         if (headers['origin']) {
             headers['origin'] = 'https://chatgpt.com';
@@ -238,15 +263,21 @@ async function proxyRequest(req, res, targetHost, targetPath) {
         }
 
         // Add authorization for non-static resources
-        if (!targetPath.includes("static") && !targetPath.includes("/assets/")) {
+        if (!targetPath.includes('static') && !targetPath.includes('/assets/')) {
             headers['authorization'] = `Bearer ${config.proxy.authToken}`;
             headers['cookie'] = `${config.proxy.cookie}`;
         }
 
         // Determine if this is a streaming request
-        const isStreamRequest = targetPath.includes("/stream");
+        const isStreamRequest = targetPath.includes('/stream');
 
-        // Prepare request config
+        // We must gather request body as a buffer
+        const requestChunks = [];
+        for await (const chunk of req) {
+            requestChunks.push(chunk);
+        }
+        const requestBodyBuffer = Buffer.concat(requestChunks);
+
         const axiosConfig = {
             method: req.method,
             url: `https://${targetHost}${targetPath}`,
@@ -254,91 +285,70 @@ async function proxyRequest(req, res, targetHost, targetPath) {
             httpsAgent: httpsProxyAgent,
             responseType: isStreamRequest ? 'stream' : 'arraybuffer',
             maxRedirects: 5,
-            validateStatus: null // Accept all status codes to handle them ourselves
+            validateStatus: null // Accept all status codes
         };
 
-        // Handle request body for non-GET/HEAD requests
         if (req.method !== 'GET' && req.method !== 'HEAD') {
-            const requestChunks = [];
-
-            for await (const chunk of req) {
-                requestChunks.push(chunk);
-            }
-
-            axiosConfig.data = Buffer.concat(requestChunks);
+            axiosConfig.data = requestBodyBuffer;
         }
 
         const response = await axios(axiosConfig);
 
         // Process response headers
-        const responseHeaders = {...response.headers};
+        const responseHeaders = { ...response.headers };
         delete responseHeaders['content-security-policy'];
         delete responseHeaders['set-cookie'];
         responseHeaders['access-control-allow-origin'] = config.server.url;
 
         if (isStreamRequest) {
-            // For streaming responses
+            // For streaming responses:
             res.writeHead(response.status, responseHeaders);
-
-            // Pipe the stream to the client response
             response.data.pipe(res);
-
-            // Handle stream errors
             response.data.on('error', (err) => {
                 console.error('Proxy stream error:', err);
                 res.end();
             });
         } else {
-            // For non-streaming responses
+            // Non-streaming response:
             const contentType = responseHeaders['content-type'] || '';
-            const isTextResponse = contentType.includes('text') ||
+            const isTextResponse =
+                contentType.includes('text') ||
                 contentType.includes('json') ||
                 contentType.includes('javascript') ||
                 contentType.includes('xml') ||
                 contentType.includes('html') ||
                 contentType.includes('css');
 
-            // Get response data as buffer
             const buffer = response.data;
 
             if (isTextResponse) {
-                // For text responses, replace domain references
                 let content = buffer.toString();
                 let modifiedContent = content;
 
                 // Replace all CDN domains with proxy paths
-                domainsToProxy.forEach(domain => {
-                    // Replace both http and https URLs
+                domainsToProxy.forEach((domain) => {
                     modifiedContent = modifiedContent.replace(
                         new RegExp(`(https?://)${domain}`, 'g'),
                         config.server.url
                     );
-
                     // Also handle cases where URLs might be relative or without protocol
                     modifiedContent = modifiedContent.replace(
                         new RegExp(`(["'])//${domain}`, 'g'),
                         `$1${config.server.url}`
                     );
-
                     modifiedContent = modifiedContent.replace(
                         new RegExp(`(["'])${domain}`, 'g'),
                         `$1${config.server.url}`
                     );
                 });
 
-                modifiedContent = modifiedContent.replace(
-                    config.proxy.cookie,
-                    ``
-                );
-                modifiedContent = modifiedContent.replace(
-                    config.proxy.authToken,
-                    ``
-                );
-                // feature flag for read aloud
-                modifiedContent = modifiedContent.replace(
-                    'L("1923022511")?.value',
-                    `true`
-                );
+                // Remove real credentials
+                modifiedContent = modifiedContent.replace(config.proxy.cookie, '');
+                modifiedContent = modifiedContent.replace(config.proxy.authToken, '');
+
+                // Hard-code read-aloud: L("1923022511")?.value -> true
+                modifiedContent = modifiedContent.replace('L("1923022511")?.value', 'true');
+
                 modifiedContent = modifiedContent.replace(
                     'M8.85719 3L13.5 3C14.0523 3 14.5 3.44772 14.5 4C14.5 4.55229 14.0523 5 13.5 5H11.5V19H15.1C16.2366 19 17.0289 18.9992 17.6458 18.9488C18.2509 18.8994 18.5986 18.8072 18.862 18.673C19.4265 18.3854 19.8854 17.9265 20.173 17.362C20.3072 17.0986 20.3994 16.7509 20.4488 16.1458C20.4992 15.5289 20.5 14.7366 20.5 13.6V11.5C20.5 10.9477 20.9477 10.5 21.5 10.5C22.0523 10.5 22.5 10.9477 22.5 11.5V13.6428C22.5 14.7266 22.5 15.6008 22.4422 16.3086C22.3826 17.0375 22.2568 17.6777 21.955 18.27C21.4757 19.2108 20.7108 19.9757 19.77 20.455C19.1777 20.7568 18.5375 20.8826 17.8086 20.9422C17.1008 21 16.2266 21 15.1428 21H8.85717C7.77339 21 6.89925 21 6.19138 20.9422C5.46253 20.8826 4.82234 20.7568 4.23005 20.455C3.28924 19.9757 2.52433 19.2108 2.04497 18.27C1.74318 17.6777 1.61737 17.0375 1.55782 16.3086C1.49998 15.6007 1.49999 14.7266 1.5 13.6428V10.3572C1.49999 9.27341 1.49998 8.39926 1.55782 7.69138C1.61737 6.96253 1.74318 6.32234 2.04497 5.73005C2.52433 4.78924 3.28924 4.02433 4.23005 3.54497C4.82234 3.24318 5.46253 3.11737 6.19138 3.05782C6.89926 2.99998 7.77341 2.99999 8.85719 3ZM9.5 19V5H8.9C7.76339 5 6.97108 5.00078 6.35424 5.05118C5.74907 5.10062 5.40138 5.19279 5.13803 5.32698C4.57354 5.6146 4.1146 6.07354 3.82698 6.63803C3.69279 6.90138 3.60062 7.24907 3.55118 7.85424C3.50078 8.47108 3.5 9.26339 3.5 10.4V13.6C3.5 14.7366 3.50078 15.5289 3.55118 16.1458C3.60062 16.7509 3.69279 17.0986 3.82698 17.362C4.1146 17.9265 4.57354 18.3854 5.13803 18.673C5.40138 18.8072 5.74907 18.8994 6.35424 18.9488C6.97108 18.9992 7.76339 19 8.9 19H9.5ZM5 8.5C5 7.94772 5.44772 7.5 6 7.5H7C7.55229 7.5 8 7.94772 8 8.5C8 9.05229 7.55229 9.5 7 9.5H6C5.44772 9.5 5 9.05229 5 8.5ZM5 12C5 11.4477 5.44772 11 6 11H7C7.55229 11 8 11.4477 8 12C8 12.5523 7.55229 13 7 13H6C5.44772 13 5 12.5523 5 12Z',
                     `M8.85719 3H15.1428C16.2266 2.99999 17.1007 2.99998 17.8086 3.05782C18.5375 3.11737 19.1777 3.24318 19.77 3.54497C20.7108 4.02433 21.4757 4.78924 21.955 5.73005C22.2568 6.32234 22.3826 6.96253 22.4422 7.69138C22.5 8.39925 22.5 9.27339 22.5 10.3572V13.6428C22.5 14.7266 22.5 15.6008 22.4422 16.3086C22.3826 17.0375 22.2568 17.6777 21.955 18.27C21.4757 19.2108 20.7108 19.9757 19.77 20.455C19.1777 20.7568 18.5375 20.8826 17.8086 20.9422C17.1008 21 16.2266 21 15.1428 21H8.85717C7.77339 21 6.89925 21 6.19138 20.9422C5.46253 20.8826 4.82234 20.7568 4.23005 20.455C3.28924 19.9757 2.52433 19.2108 2.04497 18.27C1.74318 17.6777 1.61737 17.0375 1.55782 16.3086C1.49998 15.6007 1.49999 14.7266 1.5 13.6428V10.3572C1.49999 9.27341 1.49998 8.39926 1.55782 7.69138C1.61737 6.96253 1.74318 6.32234 2.04497 5.73005C2.52433 4.78924 3.28924 4.02433 4.23005 3.54497C4.82234 3.24318 5.46253 3.11737 6.19138 3.05782C6.89926 2.99998 7.77341 2.99999 8.85719 3ZM6.35424 5.05118C5.74907 5.10062 5.40138 5.19279 5.13803 5.32698C4.57354 5.6146 4.1146 6.07354 3.82698 6.63803C3.69279 6.90138 3.60062 7.24907 3.55118 7.85424C3.50078 8.47108 3.5 9.26339 3.5 10.4V13.6C3.5 14.7366 3.50078 15.5289 3.55118 16.1458C3.60062 16.7509 3.69279 17.0986 3.82698 17.362C4.1146 17.9265 4.57354 18.3854 5.13803 18.673C5.40138 18.8072 5.74907 18.8994 6.35424 18.9488C6.97108 18.9992 7.76339 19 8.9 19H9.5V5H8.9C7.76339 5 6.97108 5.00078 6.35424 5.05118ZM11.5 5V19H15.1C16.2366 19 17.0289 18.9992 17.6458 18.9488C18.2509 18.8994 18.5986 18.8072 18.862 18.673C19.4265 18.3854 19.8854 17.9265 20.173 17.362C20.3072 17.0986 20.3994 16.7509 20.4488 16.1458C20.4992 15.5289 20.5 14.7366 20.5 13.6V10.4C20.5 9.26339 20.4992 8.47108 20.4488 7.85424C20.3994 7.24907 20.3072 6.90138 20.173 6.63803C19.8854 6.07354 19.4265 5.6146 18.862 5.32698C18.5986 5.19279 18.2509 5.10062 17.6458 5.05118C17.0289 5.00078 16.2366 5 15.1 5H11.5ZM5 8.5C5 7.94772 5.44772 7.5 6 7.5H7C7.55229 7.5 8 7.94772 8 8.5C8 9.05229 7.55229 9.5 7 9.5H6C5.44772 9.5 5 9.05229 5 8.5ZM5 12C5 11.4477 5.44772 11 6 11H7C7.55229 11 8 11.4477 8 12C8 12.5523 7.55229 13 7 13H6C5.44772 13 5 12.5523 5 12Z`
@@ -365,166 +375,145 @@ async function proxyRequest(req, res, targetHost, targetPath) {
                     new RegExp('subscriptionExpiresAt\\\\",\\d+'),
                     `subscriptionExpiresAt\\",4102329599`
                 );
-
-                if (req.method === "GET" && (req.url.split('?')[0] === "/" || /\/c\/[a-z0-9-]+$/.exec(req.url.split('?')[0]))) {
-                    modifiedContent = modifiedContent.replace('</head>', '<script src="/inject-script.js"/></head>');
+                // If user is on home or direct /c/... route, inject script
+                if (
+                    req.method === 'GET' &&
+                    (req.url.split('?')[0] === '/' || /\/c\/[a-z0-9-]+$/.exec(req.url.split('?')[0]))
+                ) {
+                    modifiedContent = modifiedContent.replace(
+                        '</head>',
+                        '<script src="/inject-script.js"/></head>'
+                    );
                 }
 
-                // Handle special endpoints
+                // Handle /backend-api/me
                 if (targetPath.endsWith('backend-api/me')) {
                     return handleBackendApiMe(req, res);
                 }
+
+                // Handle /backend-api/gizmo_creator_profile
                 if (targetPath.endsWith('backend-api/gizmo_creator_profile')) {
                     return handleBackendApiCreatorProfile(req, res);
                 }
 
-                // Conversation access handling
-                if (req.method === "GET") {
-                    let targetPathMatch = /conversation\/([a-f0-9-]+)$/.exec(targetPath);
-                    if (targetPathMatch) {
+                // conversation access checks
+                if (req.method === 'GET') {
+                    const match = /conversation\/([a-f0-9-]+)$/.exec(targetPath);
+                    if (match) {
                         try {
-                            await addConversationAccess(targetPathMatch[1], req.cookies?.auth_token);
+                            await addConversationAccess(match[1], req.cookies?.auth_token);
                         } catch (ignored) {
+                            /* ignore */
                         }
                     }
                 }
 
-                if (targetPath.startsWith('/backend-api/conversation/') && !targetPath.endsWith("generate_autocompletions") && !targetPath.endsWith("download")) {
-                    const conversationId = targetPath.split('/conversation/')[1].split("/")[0];
+                if (
+                    targetPath.startsWith('/backend-api/conversation/') &&
+                    !targetPath.endsWith('generate_autocompletions') &&
+                    !targetPath.endsWith('download')
+                ) {
+                    const conversationId = targetPath.split('/conversation/')[1].split('/')[0];
                     const userIdentity = req.cookies?.auth_token;
                     if (!userIdentity) {
-                        res.writeHead(403, {'Content-Type': 'application/json'});
-                        return res.end(JSON.stringify({error: 'User identity not provided'}));
+                        res.writeHead(403, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: 'User identity not provided' }));
                     }
 
-                    const hasAccess = targetPath.includes("conversation/init") ||
-                        targetPath.includes("conversation/voice") ||
-                        await checkConversationAccess(conversationId, userIdentity);
+                    const hasAccess =
+                        targetPath.includes('conversation/init') ||
+                        targetPath.includes('conversation/voice') ||
+                        (await checkConversationAccess(conversationId, userIdentity));
+
                     if (!hasAccess) {
-                        res.writeHead(403, {'Content-Type': 'application/json'});
-                        return res.end(JSON.stringify({error: 'not authorized'}));
+                        res.writeHead(403, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: 'not authorized' }));
                     }
                 }
 
+                // Filter user conversations
                 if (targetPath.startsWith('/backend-api/conversations')) {
                     const userConversations = await listUserConversations(req.cookies?.auth_token);
                     const ids = {};
-                    for (let userConversation of userConversations) {
-                        ids[userConversation.conversation_id] = true;
+                    for (let uc of userConversations) {
+                        ids[uc.conversation_id] = true;
                     }
-                    let content = JSON.parse(modifiedContent);
-                    if (targetPath.includes("/search?")) {
-                        content.items = content.items.filter(item => {
-                            return !!ids[item.conversation_id]
-                        });
+
+                    let parsed = JSON.parse(modifiedContent);
+
+                    if (targetPath.includes('/search?')) {
+                        parsed.items = parsed.items.filter((item) => !!ids[item.conversation_id]);
                     } else {
-                        content.items.forEach(item => {
+                        parsed.items.forEach((item) => {
                             if (!ids[item.id]) {
-                                item.title = "🔐 NOT AUTHORIZED";
+                                item.title = '🔐 NOT AUTHORIZED';
                             }
                         });
                     }
-
-                    modifiedContent = JSON.stringify(content);
+                    modifiedContent = JSON.stringify(parsed);
                 }
 
-                // Set response headers (excluding content-length which we'll recalculate)
-                Object.keys(responseHeaders).forEach(key => {
+                // Send final text response
+                Object.keys(responseHeaders).forEach((key) => {
                     if (key.toLowerCase() !== 'content-length') {
                         res.setHeader(key, responseHeaders[key]);
                     }
                 });
 
                 res.writeHead(response.status);
-                res.end(modifiedContent);
+                return res.end(modifiedContent);
             } else {
-                // For non-text responses, send the buffer directly
-                Object.keys(responseHeaders).forEach(key => {
+                // Binary or non-text
+                Object.keys(responseHeaders).forEach((key) => {
                     res.setHeader(key, responseHeaders[key]);
                 });
                 res.writeHead(response.status);
-                res.end(buffer);
+                return res.end(buffer);
             }
         }
     } catch (error) {
         logger.error(`Proxy request error: ${error.message}`);
-        res.writeHead(500);
-        res.end(`Proxy error: ${error.message}`);
-    }
-}
-
-function isSpecialRoute(method, path) {
-    if (method === "POST" && path === '/backend-api/conversation') {
-        return true;
-    }
-    if (method === "GET" && path.includes('/backend-api/models')) {
-        return true;
-    }
-    return false;
-}
-
-async function handleSpecialProxy(req, res, targetUrl) {
-    try {
-        const task = {
-            type: "fetch",
-            request: {url: targetUrl}
-        };
-
-        const result = assignTaskToWorker(task, res);
-        if (result.error) {
-            res.writeHead(500, {'Content-Type': 'application/json'});
-            return res.end(JSON.stringify({error: result.error}));
+        if (!res.headersSent) {
+            res.writeHead(500);
+            res.end(`Proxy error: ${error.message}`);
         }
-    } catch (error) {
-        logger.error(`Special proxy error: ${error.message}`);
-        res.writeHead(500, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({
-            error: 'Special proxy error',
-            message: error.message
-        }));
     }
 }
 
 /**
- * Handle streaming conversation requests
- * @param {Object} req - HTTP request object
- * @param {Object} res - HTTP response object
+ * Streaming conversation requests
  */
 function handleConversationStreaming(req, res) {
     logger.info('Handling streaming conversation request');
 
-    // Add request timeout to prevent indefinite hanging
+    // Add request timeout as in the original code
     const requestTimeout = setTimeout(() => {
         if (!res.headersSent) {
             logger.error('Conversation request timed out before processing');
-            res.writeHead(504, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({error: 'Request processing timed out'}));
+            res.writeHead(504, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request processing timed out' }));
         }
-    }, 30000); // 30 second timeout
+    }, 30000);
 
-    // Collect request body chunks
     const chunks = [];
-
     req.on('data', (chunk) => {
         chunks.push(chunk);
     });
 
     req.on('end', async () => {
-        clearTimeout(requestTimeout); // Clear the timeout once we've received all data
+        clearTimeout(requestTimeout);
 
         try {
-            // Parse the request body
-            const requestBody = Buffer.concat(chunks).toString();
+            // Parse request body
             let payload;
             try {
-                payload = JSON.parse(requestBody);
+                payload = JSON.parse(Buffer.concat(chunks).toString());
             } catch (parseError) {
                 logger.error(`Failed to parse request body: ${parseError.message}`);
-                res.writeHead(400, {'Content-Type': 'application/json'});
-                return res.end(JSON.stringify({error: 'Invalid JSON in request body'}));
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
             }
 
-            // Extract the required data
             const action = payload.action || '';
             const model = payload.model || '';
             const parentMessageId = payload.parent_message_id || '';
@@ -533,44 +522,48 @@ function handleConversationStreaming(req, res) {
             let userMessage = '';
             let preferredMessageId = '';
 
-            // Extract the user message and message ID
             const messages = payload.messages || [];
             if (messages.length > 0) {
                 const latestMessage = messages[messages.length - 1];
-                if (latestMessage.content && latestMessage.content.parts && latestMessage.content.parts.length > 0) {
+                if (latestMessage.content && latestMessage.content.parts) {
                     userMessage = latestMessage.content.parts[0] || '';
                 }
                 preferredMessageId = latestMessage.id || '';
             }
 
             const task = {
-                type: "conversation",
-                action: action,
+                type: 'conversation',
+                action,
                 question: userMessage,
                 preferred_message_id: preferredMessageId,
-                model: model,
+                model,
                 parent_message_id: parentMessageId,
                 conversation_id: conversationId,
-                raw_payload: payload,
+                raw_payload: payload
             };
 
             if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
-                res.writeHead(400, {'Content-Type': 'application/json'});
-                return res.end(JSON.stringify({error: "Invalid request, please start a new conversation and try again"}));
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(
+                    JSON.stringify({
+                        error: 'Invalid request, please start a new conversation and try again'
+                    })
+                );
             }
 
+            logger.info('assigning conversation task to worker', userMessage);
             const result = assignTaskToWorker(task, res, req.cookies?.auth_token);
             if (result.error) {
                 if (!res.headersSent) {
-                    res.writeHead(result.status || 500, {'Content-Type': 'application/json'});
-                    return res.end(JSON.stringify({error: result.error}));
+                    res.writeHead(result.status || 500, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: result.error }));
                 }
             }
         } catch (error) {
             logger.error(`Error handling conversation request: ${error.message}`);
             if (!res.headersSent) {
-                res.writeHead(500, {'Content-Type': 'application/json'});
-                res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Request processing error: ${error.message}` }));
             }
         }
     });
@@ -579,8 +572,8 @@ function handleConversationStreaming(req, res) {
         logger.error(`Request error: ${error.message}`);
         clearTimeout(requestTimeout);
         if (!res.headersSent) {
-            res.writeHead(500, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({error: `Request error: ${error.message}`}));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Request error: ${error.message}` }));
         }
     });
 }
