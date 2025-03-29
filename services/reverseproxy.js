@@ -495,6 +495,15 @@ async function handleSpecialProxy(req, res, targetUrl) {
 function handleConversationStreaming(req, res) {
     logger.info('Handling streaming conversation request');
 
+    // Add request timeout to prevent indefinite hanging
+    const requestTimeout = setTimeout(() => {
+        if (!res.headersSent) {
+            logger.error('Conversation request timed out before processing');
+            res.writeHead(504, {'Content-Type': 'application/json'});
+            res.end(JSON.stringify({error: 'Request processing timed out'}));
+        }
+    }, 30000); // 30 second timeout
+
     // Collect request body chunks
     const chunks = [];
 
@@ -503,10 +512,19 @@ function handleConversationStreaming(req, res) {
     });
 
     req.on('end', async () => {
+        clearTimeout(requestTimeout); // Clear the timeout once we've received all data
+
         try {
             // Parse the request body
             const requestBody = Buffer.concat(chunks).toString();
-            const payload = JSON.parse(requestBody);
+            let payload;
+            try {
+                payload = JSON.parse(requestBody);
+            } catch (parseError) {
+                logger.error(`Failed to parse request body: ${parseError.message}`);
+                res.writeHead(400, {'Content-Type': 'application/json'});
+                return res.end(JSON.stringify({error: 'Invalid JSON in request body'}));
+            }
 
             // Extract the required data
             const action = payload.action || '';
@@ -539,19 +557,32 @@ function handleConversationStreaming(req, res) {
             };
 
             if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
-                res.writeHead(500, {'Content-Type': 'application/json'});
+                res.writeHead(400, {'Content-Type': 'application/json'});
                 return res.end(JSON.stringify({error: "Invalid request, please start a new conversation and try again"}));
             }
 
             const result = assignTaskToWorker(task, res, req.cookies?.auth_token);
             if (result.error) {
-                res.writeHead(500, {'Content-Type': 'application/json'});
-                return res.end(JSON.stringify({error: result.error}));
+                if (!res.headersSent) {
+                    res.writeHead(result.status || 500, {'Content-Type': 'application/json'});
+                    return res.end(JSON.stringify({error: result.error}));
+                }
             }
         } catch (error) {
             logger.error(`Error handling conversation request: ${error.message}`);
+            if (!res.headersSent) {
+                res.writeHead(500, {'Content-Type': 'application/json'});
+                res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+            }
+        }
+    });
+
+    req.on('error', (error) => {
+        logger.error(`Request error: ${error.message}`);
+        clearTimeout(requestTimeout);
+        if (!res.headersSent) {
             res.writeHead(500, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+            res.end(JSON.stringify({error: `Request error: ${error.message}`}));
         }
     });
 }
