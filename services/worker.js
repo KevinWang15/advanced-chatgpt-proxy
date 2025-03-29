@@ -3,15 +3,14 @@ const {
     responseHandlers,
     sockets
 } = require("../state/state");
+const {v4: uuidv4} = require("uuid");
+const {logger} = require("../utils/utils");
 
 // Function to assign a task to a worker
-const {v4: uuidv4} = require("uuid");
-
 function assignTaskToWorker(task, res, authToken) {
-    // Find available workers sorted by last activity (prioritize least recently used)
-    const availableWorkers = Object.keys(workers)
-        .filter(workerId => !workers[workerId].busy && sockets[workerId])
-        .sort((a, b) => workers[a].lastSeen - workers[b].lastSeen);
+    // Find available workers (since we're only using them once, we just need sockets)
+    const availableWorkers = Object.keys(sockets)
+        .filter(workerId => workers[workerId] && !responseHandlers[workerId]);
 
     if (availableWorkers.length === 0) {
         // If no worker is available, return error
@@ -22,12 +21,11 @@ function assignTaskToWorker(task, res, authToken) {
     }
 
     const requestId = uuidv4();
-    console.log(`New task created: ${requestId}`);
+    logger.info(`New task created: ${requestId} (type: ${task.type})`);
 
-    // Select the least recently used worker
+    // Select the first available worker
     const workerId = availableWorkers[0];
 
-    // TODO: this part should be transparent too
     // Set up response stream
     res.writeHead(200, {
         'Content-Type': task.type === 'conversation' ? 'text/event-stream; charset=utf-8' : 'application/json',
@@ -40,13 +38,12 @@ function assignTaskToWorker(task, res, authToken) {
         authToken: authToken,
         expectedUrl: task.type === 'conversation'
             ? "https://chatgpt.com/backend-api/conversation"
-            : task.request.url
+            : task.request.url,
+        requestId: requestId,
+        createdAt: Date.now()
     };
 
-    // Mark worker as busy
-    workers[workerId].busy = true;
-
-    console.log(`Assigned task ${requestId} to worker ${workerId} via WebSocket`);
+    logger.info(`Assigned task ${requestId} to worker ${workerId} via WebSocket`);
 
     // Add request ID to the task
     const taskWithRequestId = {
@@ -59,9 +56,57 @@ function assignTaskToWorker(task, res, authToken) {
     };
 
     // Send the task to the worker
-    sockets[workerId].send(JSON.stringify(taskWithRequestId));
+    try {
+        sockets[workerId].send(JSON.stringify(taskWithRequestId));
+    } catch (error) {
+        logger.error(`Failed to send task to worker ${workerId}: ${error.message}`);
+        delete responseHandlers[workerId];
+        return {
+            error: 'Failed to send task to worker. Please try again.',
+            status: 500
+        };
+    }
 
     return {success: true};
 }
 
-module.exports = {assignTaskToWorker};
+function unregisterWorker(workerId) {
+    if (!workers[workerId]) {
+        return { error: 'Worker not found' };
+    }
+
+    logger.info(`Worker ${workerId} unregistered`);
+
+    // Clean up resources
+    if (sockets[workerId]) {
+        try {
+            sockets[workerId].close();
+        } catch (error) {
+            logger.error(`Error closing socket for worker ${workerId}: ${error.message}`);
+        }
+        delete sockets[workerId];
+    }
+
+    // If worker had a pending task, mark it as failed
+    if (responseHandlers[workerId]) {
+        try {
+            const res = responseHandlers[workerId].res;
+            if (!res.writableEnded) {
+                res.writeHead(500, {'Content-Type': 'application/json'});
+                res.end(JSON.stringify({error: 'Worker disconnected unexpectedly'}));
+            }
+        } catch (error) {
+            logger.error(`Error handling response for unregistered worker ${workerId}: ${error.message}`);
+        }
+        delete responseHandlers[workerId];
+    }
+
+    delete workers[workerId];
+
+    return { success: true };
+}
+
+module.exports = {
+    assignTaskToWorker,
+    unregisterWorker
+};

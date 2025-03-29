@@ -91,6 +91,44 @@ You must keep the browser window visible (you can use BetterDisplay to create vi
 
 Once the setup is complete, you (and any other user) can access 127.0.0.1:1234 to use the proxy.
 
+```mermaid
+flowchart TD
+    subgraph "Home"
+        subgraph "Mac Mini"
+            ChatGPTProxy["ChatGPT Proxy Server (Port 1234)"]
+            Chrome["Chrome with Extensions (ChatGPT Worker)"]
+            FRP["FRP Client (Tunnels External 31234 → Local 1234)"]
+        end
+    end
+
+    subgraph "Taiwan Node"
+        TWProxy["HTTPS Proxy Server"]
+    end
+
+    subgraph "Aliyun Server (Public IP)"
+        Nginx["Nginx (Auto SSL Certs)"]
+        FRPServer["FRP Server (Port 31234)"]
+    end
+
+    User["End User"] -->|"HTTPS Request"| Nginx
+    Nginx -->|"Forward to localhost:31234"| FRPServer
+    FRPServer -->|"Tunnel to Home:1234"| FRP
+    FRP -->|"Deliver to"| ChatGPTProxy
+    Chrome -->|"Uses https proxy"| TWProxy
+    TWProxy -->|"Forwards requests to"| ChatGPT["ChatGPT.com"]
+    ChatGPTProxy -->|"Manages workers"| Chrome
+
+    classDef home fill:#f9f,stroke:#333,stroke-width:2px
+    classDef taiwan fill:#bbf,stroke:#333,stroke-width:2px
+    classDef aliyun fill:#bfb,stroke:#333,stroke-width:2px
+    classDef external fill:#fff,stroke:#333,stroke-width:1px
+    
+    class ChatGPTProxy,Chrome,FRP home
+    class TWProxy taiwan
+    class Nginx,FRPServer aliyun
+    class ChatGPT,User external
+```
+
 ### Chrome Extension Setup
 
 1. Open Chrome and navigate to `chrome://extensions/`

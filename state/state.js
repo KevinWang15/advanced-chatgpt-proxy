@@ -1,10 +1,10 @@
 // Data structures to manage workers and requests
-const workers = {};
-const responseHandlers = {}; // Combined structure for response and expected URL
-const sockets = {}; // Map workerId to WebSocket
+const workers = {}; // Just stores worker metadata now
+const responseHandlers = {}; // Maps workerId to response handler info
+const sockets = {}; // Maps workerId to WebSocket connection
 
 module.exports = {
     workers,
     responseHandlers,
     sockets
-}
+};

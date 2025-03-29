@@ -12,7 +12,9 @@ const {
     sockets
 } = require("./state/state");
 const {addConversationAccess} = require("./services/auth");
+const {unregisterWorker} = require("./services/worker");
 const startMitmProxyForBrowser = require("./services/mitmproxy");
+const {logger} = require("./utils/utils");
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
 
@@ -36,7 +38,7 @@ wss.on('connection', (ws, req) => {
         return;
     }
 
-    console.log(`WebSocket connection established for worker ${workerId}`);
+    logger.info(`WebSocket connection established for worker ${workerId}`);
 
     // Store the WebSocket connection
     sockets[workerId] = ws;
@@ -50,14 +52,20 @@ wss.on('connection', (ws, req) => {
                 handleNetwork(data);
             }
         } catch (error) {
-            console.error('Error handling WebSocket message:', error);
+            logger.error('Error handling WebSocket message:', error);
         }
     });
 
     // Handle WebSocket close
     ws.on('close', () => {
-        console.log(`WebSocket connection closed for worker ${workerId}`);
-        delete sockets[workerId];
+        logger.info(`WebSocket connection closed for worker ${workerId}`);
+        unregisterWorker(workerId);
+    });
+
+    // Handle WebSocket errors
+    ws.on('error', (error) => {
+        logger.error(`WebSocket error for worker ${workerId}: ${error.message}`);
+        unregisterWorker(workerId);
     });
 });
 
@@ -70,7 +78,12 @@ function handleNetwork(data) {
     }
 
     // Verify worker and request are valid
-    if (!workers[workerId] || !responseHandlers[workerId]) {
+    if (!workers[workerId]) {
+        return;
+    }
+
+    // No one is listening for this worker, skip
+    if (!responseHandlers[workerId]) {
         return;
     }
 
@@ -82,23 +95,40 @@ function handleNetwork(data) {
         return;
     }
 
-    if (isDone) {
-        responseHandlers[workerId].res.end();
-        delete responseHandlers[workerId];
-        // TODO: now workers are one-use only; after a single request, they will refresh and register as new worker
-        //   this is to avoid chatgpt ui's cache problems which mess things up
-        //   we should refactor the code to better handle this new way of using worker
-        // TODO2: not all jobs are one-use only, if it is a fetch job then we can reuse it fine,
-        //   but for generation-related it is one-use only. So we should further distinguish and configure this.
+    try {
+        if (isDone) {
+            // Complete the response
+            responseHandlers[workerId].res.end();
+            delete responseHandlers[workerId];
+        } else {
+            // Extract conversation ID if present and add access
+            // TODO: security vulnerability here
+            if (text.indexOf('"conversation_id": "') >= 0) {
+                try {
+                    const conversationId = text.match(/"conversation_id":\s*"([a-f0-9-]+)"/)[1];
+                    addConversationAccess(conversationId, responseHandlers[workerId].authToken)
+                        .catch(err => logger.error(`Failed to add conversation access: ${err.message}`));
+                } catch (error) {
+                    logger.error(`Error extracting conversation ID: ${error.message}`);
+                }
+            }
 
-        // workers[workerId].busy = false;
-    } else {
-        // TODO: security vulnerability here
-        if (text.indexOf('"conversation_id": "') >= 0) {
-            const conversationId = text.match(/"conversation_id":\s*"([a-f0-9-]+)"/)[1];
-            addConversationAccess(conversationId, responseHandlers[workerId].authToken);
+            // Write chunk to response
+            responseHandlers[workerId].res.write(text);
         }
-        responseHandlers[workerId].res.write(text);
+    } catch (error) {
+        logger.error(`Error handling network message: ${error.message}`);
+        // Clean up on error
+        if (responseHandlers[workerId]) {
+            try {
+                if (!responseHandlers[workerId].res.writableEnded) {
+                    responseHandlers[workerId].res.end();
+                }
+            } catch (err) {
+                logger.error(`Error ending response: ${err.message}`);
+            }
+            delete responseHandlers[workerId];
+        }
     }
 }
 
@@ -107,18 +137,34 @@ app.post('/register-worker', (req, res) => {
     const workerId = uuidv4();
     workers[workerId] = {
         id: workerId,
-        lastSeen: Date.now(),
-        busy: false
+        lastSeen: Date.now()
     };
 
-    console.log(`Worker ${workerId} registered`);
+    logger.info(`Worker ${workerId} registered`);
     res.json({workerId});
+});
+
+// Worker unregistration endpoint
+app.post('/unregister-worker', (req, res) => {
+    const {workerId} = req.body;
+
+    if (!workerId) {
+        return res.status(400).json({error: 'Worker ID is required'});
+    }
+
+    const result = unregisterWorker(workerId);
+
+    if (result.error) {
+        return res.status(404).json({error: result.error});
+    }
+
+    res.json({success: true});
 });
 
 // Start the server
 server.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`WebSocket server running at ws://localhost:${port}/ws`);
+    logger.info(`Server running at http://localhost:${port}`);
+    logger.info(`WebSocket server running at ws://localhost:${port}/ws`);
 });
 
 startReverseProxy();

@@ -25,7 +25,9 @@ function initialize() {
     injectInterceptionScript();
 
     // Set up reconnection interval
-    setupReconnection();
+    setTimeout(() => {
+        registerAsWorker();
+    }, 5000); // wait for chatgpt to load before trying to connect
 
     // Check if we've been busy for over 30 minutes and reload if so
     setInterval(() => {
@@ -35,7 +37,10 @@ function initialize() {
             (Date.now() - workerStatus.busySince) > 30 * 60 * 1000
         ) {
             console.warn('Worker has been busy for more than 30 minutes. Reloading...');
-            window.location.href = "/";
+            unregisterWorker().then(() => {
+                window.location.href = "/";
+                window.location.reload();
+            });
         }
     }, 10000);
 }
@@ -68,8 +73,10 @@ function createStatusOverlay() {
 // Reload at random times if idle
 setInterval(() => {
     if (!workerStatus.busy) {
-        window.location.href = "/";
-        window.location.reload();
+        unregisterWorker().finally(() => {
+            window.location.href = "/";
+            window.location.reload();
+        });
     }
 }, 60 * 60 * 1000 * Math.random());
 
@@ -91,21 +98,49 @@ function updateStatusOverlay() {
     `;
 }
 
-// Set up reconnection interval
-function setupReconnection() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
+// Function to unregister the worker from the server
+async function unregisterWorker() {
+    if (!workerId) {
+        console.log('No worker ID to unregister');
+        return Promise.resolve();
     }
-    reconnectInterval = setInterval(() => {
-        if (!workerStatus.connected) {
-            console.log('Attempting to register and reconnect...');
-            workerStatus.lastAction = 'Reconnecting';
-            updateStatusOverlay();
 
-            workerId = null;
-            registerAsWorker();
+    console.log(`Unregistering worker ${workerId}`);
+    workerStatus.lastAction = 'Unregistering';
+    updateStatusOverlay();
+
+    try {
+        const response = await fetch(`${serverUrl}/unregister-worker`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({workerId})
+        });
+
+        const data = await response.json();
+        console.log('Unregister response:', data);
+
+        // Clean up local state
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
         }
-    }, 1000);
+
+        workerId = null;
+        workerStatus.connected = false;
+        updateStatusOverlay();
+
+        return data;
+    } catch (error) {
+        console.error('Failed to unregister worker:', error);
+        // Still clean up local state even if server request fails
+        workerId = null;
+        workerStatus.connected = false;
+        updateStatusOverlay();
+
+        // Re-throw to allow caller to handle
+        throw error;
+    }
 }
 
 // Function to register this tab as a worker
@@ -161,10 +196,15 @@ function connectWebSocket() {
 
         if (data.type === 'stop_generation') {
             if (window.location.href.includes(data.conversationId)) {
-                document.querySelector('button[aria-label="Stop streaming"]').click();
-                setTimeout(() => {
-                    window.location.href = "/"; // force a reload to get rid of all the nasty cache
-                });
+                const stopButton = document.querySelector('button[aria-label="Stop streaming"]');
+                if (stopButton) {
+                    stopButton.click();
+                    unregisterWorker().finally(() => {
+                        setTimeout(() => {
+                            window.location.href = "/"; // force a reload to get rid of all the nasty cache
+                        }, 1000);
+                    });
+                }
             }
         }
         if (data.type === 'task') {
@@ -232,7 +272,9 @@ async function executeTask(task) {
     } catch (error) {
         console.error('Error executing task:', error);
         setTimeout(() => {
-            window.location.href = "/";
+            unregisterWorker().finally(() => {
+                window.location.href = "/";
+            });
         }, 10000);
     }
 }
@@ -425,9 +467,9 @@ window.addEventListener('message', function (event) {
                 workerStatus.busySince = null;
                 workerStatus.lastAction = 'Task completed';
                 updateStatusOverlay();
-                if (!event.data.url.endsWith('backend-api/models')) {
-                }
-                window.location.href = "/"; // force a reload to get rid of all the nasty cache
+                unregisterWorker().finally(() => {
+                    window.location.href = "/"; // force a reload to get rid of all the nasty cache
+                });
             }
 
             // Acknowledge receipt to the page script
@@ -472,24 +514,6 @@ window.addEventListener('message', function (event) {
         }
     }
 });
-
-// Clean up function for when the page is unloaded
-function cleanup() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-    }
-
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-    }
-
-    if (statusOverlay && statusOverlay.parentNode) {
-        statusOverlay.parentNode.removeChild(statusOverlay);
-    }
-}
-
-// Set up cleanup on page unload
-window.addEventListener('beforeunload', cleanup);
 
 initialize();
 

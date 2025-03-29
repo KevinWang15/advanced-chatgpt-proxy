@@ -4,6 +4,18 @@
     window.fetch = async function (...args) {
 
         const [input, init = {}] = args;
+
+        // Check for the specific URL pattern
+        if (typeof input === 'string' && input.includes('ces/statsc/flush')) {
+            // Mock a 200 response with empty JSON object
+            return Promise.resolve(new Response('{}', {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }));
+        }
+
         if (init.signal) {
             init.signal.addEventListener('abort', (e) => {
                 if (args[1].method === "POST" && (args[0].endsWith("/backend-api/conversation") || args[0].endsWith("/backend-alt/conversation"))) {
@@ -55,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         characterData: true
     });
 
-    addScreenshotFeature();
+    // addScreenshotFeature();
 })
 
 function addStyles() {

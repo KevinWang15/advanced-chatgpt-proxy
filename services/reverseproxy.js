@@ -9,7 +9,7 @@ const {
     handleRobotsTxt,
     handleBackendApiMe,
     handleBackendApiCreatorProfile,
-    handleStopGeneration, handleGetModels
+    handleStopGeneration, handleGetModels, handleChatRequirements
 } = require('./reverseproxy_specialhandlers');
 const cookieParser = require('cookie-parser');
 const {
@@ -21,7 +21,6 @@ const {
     addConversationAccess
 } = require('./auth');
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require("../consts");
-const https = require("https");
 const {assignTaskToWorker} = require("./worker");
 const axios = require('axios');
 const {httpsProxyAgent} = require("../utils/tunnel");
@@ -124,12 +123,17 @@ function startReverseProxy() {
                 // Handle stop generation
                 if (req.method === 'POST' &&
                     (parsedUrl.pathname.startsWith("/stop-generation/"))) {
-                    handleStopGeneration(parsedUrl.pathname.split("/").pop());
+                    handleStopGeneration(parsedUrl.pathname.split("/").pop(), req, res);
                     return;
                 }
 
                 if (parsedUrl.pathname.endsWith('/backend-api/subscriptions')) {
                     handleSubscriptions(req, res);
+                    return;
+                }
+
+                if (parsedUrl.pathname.endsWith('/backend-api/sentinel/chat-requirements')) {
+                    handleChatRequirements(req, res);
                     return;
                 }
 
@@ -195,13 +199,11 @@ function determineTarget(requestUrl) {
 
 function shouldMockSuccess(targetHost, targetPath) {
     if (mockSuccessDomains.includes(targetHost)) {
-        logger.info(`Blocking request to blocked domain: ${targetHost}`);
         return true;
     }
 
     for (const blockedPath of mockSuccessPaths) {
         if (targetPath.includes(blockedPath)) {
-            logger.info(`Blocking request to blocked path: ${targetPath}`);
             return true;
         }
     }
@@ -220,8 +222,6 @@ function sendMockSuccessResponse(res) {
 
 
 async function proxyRequest(req, res, targetHost, targetPath) {
-    logger.info(`Proxying to: ${targetHost}${targetPath}`);
-
     try {
         // Prepare headers for the outgoing request
         const headers = {...req.headers};
@@ -366,7 +366,7 @@ async function proxyRequest(req, res, targetHost, targetPath) {
                     `subscriptionExpiresAt\\",4102329599`
                 );
 
-                if (req.method === "GET" && (req.url === "/" || /\/c\/[a-z0-9-]+$/.exec(req.url))) {
+                if (req.method === "GET" && (req.url.split('?')[0] === "/" || /\/c\/[a-z0-9-]+$/.exec(req.url.split('?')[0]))) {
                     modifiedContent = modifiedContent.replace('</head>', '<script src="/inject-script.js"/></head>');
                 }
 
@@ -393,7 +393,6 @@ async function proxyRequest(req, res, targetHost, targetPath) {
                     const conversationId = targetPath.split('/conversation/')[1].split("/")[0];
                     const userIdentity = req.cookies?.auth_token;
                     if (!userIdentity) {
-                        logger.info(`Blocking request to conversation ${conversationId} without user identity`);
                         res.writeHead(403, {'Content-Type': 'application/json'});
                         return res.end(JSON.stringify({error: 'User identity not provided'}));
                     }
@@ -402,7 +401,6 @@ async function proxyRequest(req, res, targetHost, targetPath) {
                         targetPath.includes("conversation/voice") ||
                         await checkConversationAccess(conversationId, userIdentity);
                     if (!hasAccess) {
-                        logger.info(`Blocking request to conversation ${conversationId} for user ${userIdentity}`);
                         res.writeHead(403, {'Content-Type': 'application/json'});
                         return res.end(JSON.stringify({error: 'not authorized'}));
                     }
@@ -539,19 +537,31 @@ function handleConversationStreaming(req, res) {
             };
 
             if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
-                res.writeHead(500, {'Content-Type': 'application/json'});
+                res.writeHead(400, {'Content-Type': 'application/json'});
                 return res.end(JSON.stringify({error: "Invalid request, please start a new conversation and try again"}));
             }
 
             const result = assignTaskToWorker(task, res, req.cookies?.auth_token);
             if (result.error) {
-                res.writeHead(500, {'Content-Type': 'application/json'});
-                return res.end(JSON.stringify({error: result.error}));
+                if (!res.headersSent) {
+                    res.writeHead(result.status || 500, {'Content-Type': 'application/json'});
+                    return res.end(JSON.stringify({error: result.error}));
+                }
             }
         } catch (error) {
             logger.error(`Error handling conversation request: ${error.message}`);
+            if (!res.headersSent) {
+                res.writeHead(500, {'Content-Type': 'application/json'});
+                res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+            }
+        }
+    });
+
+    req.on('error', (error) => {
+        logger.error(`Request error: ${error.message}`);
+        if (!res.headersSent) {
             res.writeHead(500, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+            res.end(JSON.stringify({error: `Request error: ${error.message}`}));
         }
     });
 }

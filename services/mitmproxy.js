@@ -188,13 +188,10 @@ function handleCdnOaiStaticComMitm(clientSocket, head) {
             let body;
 
             if (responseCache.has(cacheKey)) {
-                console.log(`[CACHE HIT] ${method} ${path}`);
                 const cachedResponse = responseCache.get(cacheKey);
                 responseHeaders = cachedResponse.headers;
                 body = cachedResponse.body;
             } else {
-                console.log(`[CACHE MISS] ${method} ${path}`);
-
                 const {socket} = await createHttpsTunnel(INTERCEPT_DOMAIN, 443);
 
                 // Create TLS connection over the SOCKS connection
