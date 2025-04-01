@@ -196,7 +196,7 @@ function connectWebSocket() {
         const data = JSON.parse(event.data);
 
         if (data.type === 'stop_generation') {
-            if (window.location.href.includes(data.conversationId)) {
+            if (data.conversationId && data.conversationId.length > 10 && window.location.href.includes(data.conversationId)) {
                 const stopButton = document.querySelector('button[aria-label="Stop streaming"]');
                 if (stopButton) {
                     stopButton.click();
@@ -268,12 +268,6 @@ async function executeTask(task, requestId) {
         switch (task.type) {
             case "conversation":
                 return await chatSimulateUser(task, requestId);
-            case "fetch":
-                window.postMessage({
-                    type: 'CMD_DO_FETCH',
-                    request: task.request
-                });
-                break;
         }
     } catch (error) {
         console.error('Error executing task:', error);
@@ -302,7 +296,7 @@ async function chatSimulateUser(task, requestId) {
         url: expectedPath
     });
     await pollUntil(() => window.location.href.endsWith(expectedPath));
-    await sleep(50); // js is async so changing the url doesn't immediately change the model
+    await sleep(200); // js is async so changing the url doesn't immediately change the model
     if (expectedPath.includes("/c/")) {
         await pollUntil(() => Array.from(document.querySelectorAll('div[data-message-id]')).length);
     }
@@ -384,13 +378,13 @@ async function chatSimulateUser(task, requestId) {
             if (!deepResearchBtnPressed) {
                 deepResearchBtn.click();
                 await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'true')
-                await sleep(50);
+                await sleep(200);
             }
         } else {
             if (deepResearchBtnPressed) {
                 deepResearchBtn.click();
                 await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'false')
-                await sleep(50);
+                await sleep(200);
             }
         }
 
@@ -406,13 +400,13 @@ async function chatSimulateUser(task, requestId) {
             if (!searchBtnPressed) {
                 searchBtn.click();
                 await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'true')
-                await sleep(50);
+                await sleep(200);
             }
         } else {
             if (searchBtnPressed) {
                 searchBtn.click();
                 await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'false')
-                await sleep(50);
+                await sleep(200);
             }
         }
 

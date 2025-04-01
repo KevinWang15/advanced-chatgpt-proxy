@@ -27,12 +27,14 @@ function assignTaskToWorker(task, res, authToken, retryCount = 0) {
     const workerId = availableWorkers[0];
 
     // 4. Write initial response headers
-    //    (you may want to skip this if you plan to reassign the same `res` object multiple times,
-    //     but for streaming SSE, we usually open them once)
-    res.writeHead(200, {
-        'Content-Type': (task.type === 'conversation') ? 'text/event-stream; charset=utf-8' : 'application/json',
-        'Transfer-Encoding': 'chunked'
-    });
+    try {
+        res.writeHead(200, {
+            'Content-Type': (task.type === 'conversation') ? 'text/event-stream; charset=utf-8' : 'application/json',
+            'Transfer-Encoding': 'chunked'
+        });
+    } catch (e) {
+        console.warn(e);
+    }
 
     // 5. Store in global responseHandlers so we can stream data back
     responseHandlers[workerId] = {
@@ -92,7 +94,7 @@ function assignTaskToWorker(task, res, authToken, retryCount = 0) {
                     const nextResult = assignTaskToWorker(task, res, authToken, retryCount + 1);
                     if (nextResult.error && !res.headersSent) {
                         res.writeHead(nextResult.status || 500, {'Content-Type': 'application/json'});
-                        return res.end(JSON.stringify({ error: nextResult.error }));
+                        return res.end(JSON.stringify({error: nextResult.error}));
                     }
                 } else {
                     logger.error(`Maximum retry attempts reached for ${requestId}`);
@@ -107,12 +109,12 @@ function assignTaskToWorker(task, res, authToken, retryCount = 0) {
         }, 3000) // 3-second ack deadline
     };
 
-    return { success: true };
+    return {success: true};
 }
 
 function unregisterWorker(workerId) {
     if (!workers[workerId]) {
-        return { error: 'Worker not found' };
+        return {error: 'Worker not found'};
     }
 
     logger.info(`Worker ${workerId} unregistered`);
@@ -143,7 +145,7 @@ function unregisterWorker(workerId) {
 
     delete workers[workerId];
 
-    return { success: true };
+    return {success: true};
 }
 
 module.exports = {

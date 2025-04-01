@@ -3,7 +3,7 @@ const config = require('../config');
 const {sockets} = require("../state/state");
 const fs = require("node:fs");
 
-function handleStopGeneration(conversation,req,res) {
+function handleStopGeneration(conversation, req, res) {
     Object.keys(sockets).forEach((workerId) => {
         sockets[workerId].send(JSON.stringify({
             type: 'stop_generation',

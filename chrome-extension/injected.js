@@ -75,13 +75,6 @@
 // Listen for messages from the content script
 window.addEventListener('message', function (event) {
     if (event.source !== window) return;
-    if (event.data.type && event.data.type === 'CMD_DO_FETCH') {
-        window.oaiapi.fetch2(event.data.request.url, {
-            ...event.data.request,
-            url: undefined,
-            body: JSON.stringify(event.data.request.body)
-        });
-    }
     if (event.data.type && event.data.type === 'CMD_SET_PREFERRED_MESSAGE_ID') {
         window.hpmid = event.data.id;
     }
@@ -96,8 +89,7 @@ window.addEventListener('message', function (event) {
 
 
 function injectionIsReady() {
-    return true;
-    // return window.inj1 && window.inj2 && window.inj3 && window.inj4 && window.inj5;
+    return window.inj1 && window.inj2 && window.inj3 && window.inj4 && window.inj5;
 }
 
 
