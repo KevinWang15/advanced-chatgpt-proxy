@@ -59,12 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // --- Rule Application ---
 
             // Rule 1: Check if the node *itself* is the button to hide
-            if (node.tagName === 'BUTTON' && node.getAttribute('aria-label') === 'Temporary') {
+            if (node.tagName === 'BUTTON' && (node.getAttribute('aria-label') === 'Temporary' || node.getAttribute('aria-label') === 'Share' || node.getAttribute('aria-label') === 'Open Profile Menu')) {
                 // Check if the element is not already hidden via display: none
                 if (window.getComputedStyle(node).display !== 'none') {
-                    // console.log('Rule 1: Hiding temporary button:', node);
                     node.style.display = 'none';
-                    nodeAltered = true; // Node was visually altered
+                    nodeAltered = true;
                 }
                 // If already display: none, do nothing
             }
@@ -95,13 +94,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Rule 3: Check innerText for modification (This rule modifies content, not visibility)
                     // Check if modification has already happened (e.g., by checking for the specific structure)
                     // This prevents re-applying the innerHTML unnecessarily if the observer refires.
-                    node.style.opacity = '0.5';
-                    node.style.cursor = 'not-allowed';
-                    node.style.pointerEvents = 'none';
+                    if (!node.style.opacity) {
+                        node.style.opacity = '0.5';
+                        node.style.cursor = 'not-allowed';
+                        node.style.pointerEvents = 'none';
+                        nodeAltered = true;
+                    }
                 } else {
-                    delete node.style.opacity;
-                    delete node.style.cursor;
-                    delete node.style.pointerEvents;
+                    if (node.style.opacity) {
+                        delete node.style.opacity;
+                        delete node.style.cursor;
+                        delete node.style.pointerEvents;
+                        nodeAltered = true;
+                    }
                 }
             }
             return nodeAltered; // Return true if node was hidden/modified
