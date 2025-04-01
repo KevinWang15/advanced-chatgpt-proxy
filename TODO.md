@@ -15,6 +15,7 @@ streaming结束问题：
 * 如果上一条是failed reasoning, 然后你发送了一条，然后你编辑了那条发送的，那搞不定
 * 稳定性: 有时好像是conversation消息发不到server，或者server不能通知到worker
 * 稳定性: 第一个消息失败，用户点击重试按钮，无法重试
+* 稳定性: 有些时候我选o1 pro，怎么用4o生成
 * share功能
 * deep research 的图片
 * https://web-sandbox.oaiusercontent.com/

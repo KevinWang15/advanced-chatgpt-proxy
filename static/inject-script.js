@@ -95,11 +95,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Rule 3: Check innerText for modification (This rule modifies content, not visibility)
                     // Check if modification has already happened (e.g., by checking for the specific structure)
                     // This prevents re-applying the innerHTML unnecessarily if the observer refires.
-                    const alreadyModified = node.querySelector('span.locked > div.redacted');
-                    if (!alreadyModified) {
-                        node.innerHTML = '<span class="locked">🔒<div class="redacted"></div></span>';
-                        nodeAltered = true; // Node content was altered
-                    }
+                    node.style.opacity = '0.5';
+                    node.style.cursor = 'not-allowed';
+                    node.style.pointerEvents = 'none';
+                } else {
+                    delete node.style.opacity;
+                    delete node.style.cursor;
+                    delete node.style.pointerEvents;
                 }
             }
             return nodeAltered; // Return true if node was hidden/modified
