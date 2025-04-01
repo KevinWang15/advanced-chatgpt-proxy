@@ -2,9 +2,11 @@
 const workers = {}; // Just stores worker metadata now
 const responseHandlers = {}; // Maps workerId to response handler info
 const sockets = {}; // Maps workerId to WebSocket connection
+const pendingTasks = {};
 
 module.exports = {
     workers,
     responseHandlers,
-    sockets
+    sockets,
+    pendingTasks
 };

@@ -1,11 +1,7 @@
 # TODO
 
 * 稳定性 还需要 加强
-* failed to load content
-
 * advanced voice mode
-* conversation接口内部是否可以添加一个retry
-
 streaming结束问题：
 * 生成完了没有结束streaming
 * 没生成完但是streaming没了

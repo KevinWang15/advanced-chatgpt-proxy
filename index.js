@@ -9,7 +9,7 @@ const startReverseProxy = require("./services/reverseproxy");
 const {
     workers,
     responseHandlers,
-    sockets
+    sockets, pendingTasks
 } = require("./state/state");
 const {addConversationAccess} = require("./services/auth");
 const {unregisterWorker} = require("./services/worker");
@@ -51,6 +51,16 @@ wss.on('connection', (ws, req) => {
             if (data.type === 'network') {
                 handleNetwork(data);
             }
+
+            if (data.type === 'task_ack') {
+                const { requestId } = data;
+                if (pendingTasks[requestId]) {
+                    logger.info(`Received ack from worker for request ${requestId}`);
+                    pendingTasks[requestId].ack = true;
+                    clearTimeout(pendingTasks[requestId].ackTimeout);
+                }
+            }
+
         } catch (error) {
             logger.error('Error handling WebSocket message:', error);
         }

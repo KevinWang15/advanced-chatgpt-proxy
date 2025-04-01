@@ -215,7 +215,7 @@ function connectWebSocket() {
             workerStatus.lastAction = `Processing: ${data.task.type}`;
             updateStatusOverlay();
 
-            executeTask(data.task);
+            executeTask(data.task, data.requestId);
         }
     };
 
@@ -259,7 +259,7 @@ function injectInterceptionScript() {
 
 let taskExpectedUrl = '';
 
-async function executeTask(task) {
+async function executeTask(task, requestId) {
     taskExpectedUrl = task.type === 'conversation'
         ? "https://chatgpt.com/backend-api/conversation"
         : task.request.url;
@@ -267,7 +267,7 @@ async function executeTask(task) {
     try {
         switch (task.type) {
             case "conversation":
-                return await chatSimulateUser(task);
+                return await chatSimulateUser(task, requestId);
             case "fetch":
                 window.postMessage({
                     type: 'CMD_DO_FETCH',
@@ -285,7 +285,7 @@ async function executeTask(task) {
     }
 }
 
-async function chatSimulateUser(task) {
+async function chatSimulateUser(task, requestId) {
     window.postMessage({
         type: 'CMD_NAVIGATE',
         url: "/?model"
@@ -315,6 +315,14 @@ async function chatSimulateUser(task) {
         type: 'CMD_SET_PREFERRED_MESSAGE_ID',
         id: task.preferred_message_id,
     });
+
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'task_ack',
+            requestId: requestId
+        }));
+    }
+
     if (task.action === "variant") {
         const parentMessage = await findParentMessage(task);
         const messageToRegenerate = await pollUntil(() =>
@@ -509,7 +517,7 @@ window.addEventListener('message', function (event) {
             updateStatusOverlay();
 
             // Execute the task received from the page
-            executeTask(event.data.task);
+            executeTask(event.data.task, event.data.requestId);
         } else {
             console.error('Page command EXECUTE_WORKER_TASK missing "task" payload.');
             window.postMessage({
@@ -674,7 +682,7 @@ async function sendHeartbeat() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ workerId })
+            body: JSON.stringify({workerId})
         });
 
         const data = await response.json();
