@@ -1,11 +1,18 @@
 const workerId = "worker-" + Math.random().toString(36).substring(2, 9);
 let isWorking = false;
+let isConnected = false;
 
 setTimeout(() => {
     if (!isWorking) {
         destroy();
     }
 }, 10 * 60 * 1000); // 10 minutes timeout, if not working, then reload, to make sure things are always fresh
+
+setTimeout(() => {
+    if (!isConnected) {
+        destroy();
+    }
+}, 30 * 1000);
 
 // set up network interception
 (function setupInterception() {
@@ -341,7 +348,7 @@ whenReady(function () {
         let lastPongTimestamp = Date.now();
         // Heartbeat parameters
         const HEARTBEAT_INTERVAL_MS = 500; // send heartbeat every second
-        const HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds timeout
+        const HEARTBEAT_TIMEOUT_MS = 30000;
 
         // Start heartbeat interval
         heartbeatInterval = setInterval(() => {
@@ -368,6 +375,7 @@ whenReady(function () {
             statusText.textContent = "Connected";
             statusEmoji.textContent = "✅";
             overlay.className = "connected";
+            isConnected = true;
         });
 
         // On receiving pong, update timestamp

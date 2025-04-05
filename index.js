@@ -50,7 +50,7 @@ const workers = {};
 
 
 const HEARTBEAT_CHECK_INTERVAL = 1000;
-const HEARTBEAT_TIMEOUT = 6000;
+const HEARTBEAT_TIMEOUT = 30000;
 
 // Periodically check for dead workers
 setInterval(() => {
