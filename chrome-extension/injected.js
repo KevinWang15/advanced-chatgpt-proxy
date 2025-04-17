@@ -286,7 +286,6 @@ function showErrorToast(message, duration = 3000) {
 }
 
 
-let heartbeatInterval = null;
 let socket = null;
 
 whenReady(function () {
@@ -396,32 +395,14 @@ whenReady(function () {
             // Create socket connection with the workerId as query param
             socket = io("https://aaaaa.chatgpt.com/socketio", {
                 query: {workerId, accountName},
+                reconnection: true,
+                reconnectionAttempts: 10,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                timeout: 60000,
+                pingTimeout: 60000,
+                pingInterval: 10000
             });
-
-            // Track the time when we last received a pong
-            let lastPongTimestamp = Date.now();
-            // Heartbeat parameters
-            const HEARTBEAT_INTERVAL_MS = 1000;
-            const HEARTBEAT_TIMEOUT_MS = 30000;
-
-            // Start heartbeat interval
-            heartbeatInterval = setInterval(() => {
-                if (!socket.connected) {
-                    console.warn("Socket not connected; destroying worker.");
-                    destroy();
-                    return;
-                }
-
-                const now = Date.now();
-                // Check if it's been too long since the last pong
-                if (now - lastPongTimestamp > HEARTBEAT_TIMEOUT_MS) {
-                    console.warn("No pong in a while; destroying worker.");
-                    destroy();
-                    return;
-                }
-
-                socket.emit("heartbeat");
-            }, HEARTBEAT_INTERVAL_MS);
 
             // On socket connection, update overlay
             socket.on("connect", () => {
@@ -432,11 +413,6 @@ whenReady(function () {
                 isConnected = true;
             });
 
-            // On receiving pong, update timestamp
-            socket.on("pong", () => {
-                console.log("Received pong for worker", workerId);
-                lastPongTimestamp = Date.now();
-            });
 
             // If the socket disconnects, destroy the worker
             socket.on("disconnect", () => {
@@ -671,9 +647,8 @@ function whenReady(callback) {
 // Clean up function to destroy the worker
 function destroy() {
     console.log(`Destroying worker ${workerId}...`);
-    clearInterval(heartbeatInterval);
-
-    if (socket.connected) {
+    
+    if (socket && socket.connected) {
         socket.disconnect();
     }
 

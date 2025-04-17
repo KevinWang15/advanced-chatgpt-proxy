@@ -46,21 +46,7 @@ const dynamicNsp = io.of(/^\/.*$/);
 const workers = {};
 
 
-const HEARTBEAT_CHECK_INTERVAL = 1000;
-const HEARTBEAT_TIMEOUT = 30000;
-
-// Periodically check for dead workers
-setInterval(() => {
-    const now = Date.now();
-    for (const workerId in workers) {
-        const data = workers[workerId];
-        if (now - data.lastHeartbeat > HEARTBEAT_TIMEOUT) {
-            console.log(`Worker ${workerId} timed out. Disconnecting and cleaning up.`);
-            data.socket.disconnect(true);
-            delete workers[workerId];
-        }
-    }
-}, HEARTBEAT_CHECK_INTERVAL);
+// Socket.io handles ping/pong automatically, no need for custom heartbeat checks
 
 async function findAvailableWorker(selectedAccount) {
     const startTime = Date.now();
@@ -151,6 +137,10 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 }
 
 // Socket.io connection handler
+// Configure Socket.io server options
+io.engine.pingTimeout = 60000; // How long to wait for a ping response (ms)
+io.engine.pingInterval = 10000; // How often to ping clients (ms)
+
 dynamicNsp.on("connection", (socket) => {
     // The worker should send us its workerId right away (e.g. in handshake or first event).
     // We'll assume the client is sending the workerId in the query string or first message.
@@ -165,20 +155,9 @@ dynamicNsp.on("connection", (socket) => {
     workers[workerId] = {
         socket,
         accountName,
-        lastHeartbeat: Date.now(),
         available: true,
     };
 
-    // Listen for heartbeat
-    socket.on("heartbeat", () => {
-        // Update last heartbeat
-        const workerData = workers[workerId];
-        if (workerData) {
-            workerData.lastHeartbeat = Date.now();
-            // Reply with "pong"
-            socket.emit("pong");
-        }
-    });
 
     // When the socket disconnects
     socket.on("disconnect", () => {
