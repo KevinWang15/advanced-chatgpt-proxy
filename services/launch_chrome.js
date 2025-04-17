@@ -140,7 +140,7 @@ function getCookies(cookieString) {
 //    - Sets proxy credentials
 //    - On extension startup: sets cookies, ensures at least 10 ChatGPT tabs
 //
-function createAutomationExtension(extensionDir,  cookies) {
+function createAutomationExtension(extensionDir, cookies, accountName) {
     fs.mkdirSync(extensionDir, {recursive: true});
 
     // A minimal MV3 manifest.json
@@ -152,7 +152,8 @@ function createAutomationExtension(extensionDir,  cookies) {
             "cookies",
             "tabs",
             "webRequest",
-            "webRequestAuthProvider"
+            "webRequestAuthProvider",
+            "scripting"
         ],
         host_permissions: [
             "<all_urls>"
@@ -162,8 +163,24 @@ function createAutomationExtension(extensionDir,  cookies) {
             type: "module"
         }
     };
+    
+    // Save account name to a global variable in the extension
 
     const backgroundJs = `
+    // Inject code to set account name in localStorage for the page
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (changeInfo.status === 'complete' && tab.url && tab.url.includes('chatgpt.com')) {
+        chrome.scripting.executeScript({
+          target: { tabId },
+          func: (accountName) => {
+            localStorage.setItem('chatgptProxyAccountName', accountName);
+            console.log('Account name saved to localStorage:', accountName);
+          },
+          args: ['${accountName}']
+        });
+      }
+    });
+    
     // ================
     // Proxy Auth
     // ================
@@ -242,7 +259,7 @@ async function startChromeWithoutPuppeteer() {
 
         // Create extension in a subfolder
         const extensionPath = path.join(userDataDir, "automation-extension");
-        createAutomationExtension(extensionPath,  cookiesArray);
+        createAutomationExtension(extensionPath, cookiesArray, account.name);
 
         // Now spawn Chrome as a normal process
         // The below flags are somewhat similar to those you used with Puppeteer
