@@ -7,6 +7,7 @@ const {logger} = require("./utils/utils");
 const {Server} = require("socket.io");
 const {StopGenerationCallback} = require("./services/reverseproxy_specialhandlers");
 const {startChromeWithoutPuppeteer} = require("./services/launch_chrome");
+const {getSocketIOServerPort} = require("./state/state");
 
 
 delete process.env.http_proxy;
@@ -27,10 +28,12 @@ const io = new Server(socketIoHttpServer, {
 });
 
 const dynamicNsp = io.of(/^\/.*$/);
-
-socketIoHttpServer.listen(1236, "127.0.0.1", () => {
-    console.log("SocketIO Server listening on http://127.0.0.1:1236 (this server is used for socketio, bi-directional communication between the chrome extension and the main server)");
-});
+(async function () {
+    const port = await getSocketIOServerPort();
+    socketIoHttpServer.listen(port, "127.0.0.1", () => {
+        console.log("SocketIO Server listening on http://127.0.0.1:" + port + " (this server is used for socketio, bi-directional communication between the chrome extension and the main server)");
+    });
+})()
 
 // Store worker data in a Map keyed by workerId
 // Example structure of each entry:
@@ -257,7 +260,9 @@ function handleNetwork(data, socket) {
 
 
 startReverseProxy({doWork});
-startMitmProxyForBrowser();
 setTimeout(() => {
-    startChromeWithoutPuppeteer();
+    startMitmProxyForBrowser();
+    setTimeout(() => {
+        startChromeWithoutPuppeteer();
+    }, 1000);
 }, 1000);

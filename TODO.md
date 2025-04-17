@@ -9,6 +9,7 @@
 
 * 优化first load
 * 多实例 -  maybe需要指纹浏览器
+* 那个heartbeat到底怎么会fail
 * 网关模式
   * 动态路由优选
 * 把用户体系做做好

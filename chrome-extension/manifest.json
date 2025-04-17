@@ -8,8 +8,7 @@
     "activeTab",
     "storage",
     "webNavigation",
-    "tabs",
-    "http://127.0.0.1:1234/"
+    "tabs"
   ],
   "host_permissions": [
     "https://chatgpt.com/*"

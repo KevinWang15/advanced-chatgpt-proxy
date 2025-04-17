@@ -8,7 +8,7 @@ const forge = require('node-forge');
 const {createHttpsTunnel} = require("../utils/tunnel");
 const {findNFreePorts} = require("../utils/net");
 const config = require("../config");
-const {mapAccountNameToPort, mapPortToAccountName} = require("../state/state");
+const {mapAccountNameToPort, mapPortToAccountName, getSocketIOServerPort} = require("../state/state");
 
 
 // Root CA persisted on disk so user can install/trust it
@@ -182,12 +182,12 @@ function buildHttpResponseHeaders(realResp, bodyBuffer) {
 const responseCache = new Map();
 
 function handleAaaaaMitm(clientSocket, head) {
-    const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, (tlsClientSocket) => {
+    const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
 
         // Create connection to target WebSocket server
-        const targetSocket = net.connect(1236, '127.0.0.1', () => {
-            console.log('Connected to WebSocket server at 127.0.0.1:1236');
+        const targetSocket = net.connect(await getSocketIOServerPort(), '127.0.0.1', () => {
+            console.log('Connected to WebSocket server at 127.0.0.1');
 
             // Set up error handling for the target socket
             attachErrorHandlers(targetSocket);
