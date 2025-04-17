@@ -44,6 +44,50 @@ function startReverseProxy({doWork}) {
     app.get('/metrics', async (req, res) => {
         return await handleMetrics(req, res, {doWork});
     })
+    app.get('/api/trigger-degradation-check', async (req, res) => {
+        try {
+            // Check authentication
+            const token = req.headers['x-internal-authentication'] || req.cookies?.access_token;
+            const isValid = token === getInternalAuthenticationToken() || await verifyToken(token);
+
+            if (!isValid) {
+                res.status(401).json({error: 'Authentication required'});
+                return;
+            }
+
+            // Trigger degradation checks for all accounts
+            const accounts = [...config.accounts];
+            const results = [];
+
+            // Schedule checks for each account with random delay
+            for (const account of accounts) {
+                const delaySeconds = Math.floor(Math.random() * (30 - 10 + 1) + 10); // Random 10-30 seconds
+                const delayMs = delaySeconds * 1000;
+                results.push({
+                    account: account.name,
+                    scheduledDelay: `${delaySeconds} seconds`
+                });
+
+                setTimeout(async () => {
+                    try {
+                        await performDegradationCheckForAccount(account);
+                        console.log(`Manually triggered degradation check completed for ${account.name}`);
+                    } catch (error) {
+                        console.error(`Manually triggered degradation check failed for ${account.name}:`, error);
+                    }
+                }, delayMs);
+            }
+
+            res.status(200).json({
+                success: true,
+                message: `Scheduled degradation checks for ${accounts.length} accounts`,
+                scheduledChecks: results
+            });
+        } catch (error) {
+            console.error('Error triggering degradation checks:', error);
+            res.status(500).json({error: 'Internal server error'});
+        }
+    })
     app.get('/start', async (req, res) => {
         try {
             // Check if user is already authenticated
@@ -775,7 +819,7 @@ async function checkDegradation(account) {
 
         const response = await axios({
             method: 'POST',
-            url: 'http://127.0.0.1:1234/backend-api/conversation',
+            url: 'http://127.0.0.1:' + config.server.port + '/backend-api/conversation',
             headers: {
                 'accept': 'text/event-stream',
                 'content-type': 'application/json',
