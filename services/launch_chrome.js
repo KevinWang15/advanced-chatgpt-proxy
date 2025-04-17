@@ -10,6 +10,7 @@ const findGitRoot = require('find-git-root');
 const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const {mapAccountNameToPort} = require("../state/state");
 const {rimraf} = require("rimraf");
+const AdsPowerClient = require("./adspower");
 const gitRoot = findGitRoot('.');
 
 const MASTER_COOKIES = [
@@ -291,4 +292,152 @@ async function startChromeWithoutPuppeteer() {
     }
 }
 
-module.exports = {startChromeWithoutPuppeteer};
+
+// Helper to get or create AdsPower profile for an account
+async function getOrCreateAdsPowerProfile(adsClient, account) {
+    // Create a unique hash for this account to use as profile name
+    const profileHash = crypto
+        .createHash('sha256')
+        .update(account.name)
+        .digest('hex')
+        .substring(0, 8);
+    
+    const profileName = `${account.name} (${profileHash})`;
+    
+    // First, try to list existing profiles
+    try {
+        console.log(`Checking for existing AdsPower profile for account: ${account.name}`);
+        const listResponse = await adsClient.listProfiles(config.adspower.groupId);
+        
+        if (listResponse.code === 0 && listResponse.data && listResponse.data.list) {
+            // Look for a profile with matching name
+            const existingProfile = listResponse.data.list.find(profile => profile.name === profileName);
+            
+            if (existingProfile && existingProfile.user_id) {
+                console.log(`Found existing AdsPower profile for account: ${account.name} (${existingProfile.user_id})`);
+                return existingProfile.user_id;
+            }
+        }
+    } catch (error) {
+        console.warn(`Error listing AdsPower profiles: ${error.message}`);
+        // Continue to create a new profile
+    }
+
+    // Create a new profile if none found
+    console.log(`Creating new AdsPower profile for account: ${account.name} (${profileHash})`);
+
+    // Configure proxy settings for this profile
+    const proxyConfig = {
+        proxy_soft: 'other',
+        proxy_type: 'http',
+        proxy_host: '127.0.0.1',
+        proxy_port: mapAccountNameToPort[account.name],
+        proxy_user: '',
+        proxy_password: ''
+    };
+
+    // Create the profile with randomized fingerprint
+    const createResponse = await adsClient.createProfile({
+        name: profileName,
+        groupId: config.adspower.groupId,
+        proxyConfig: proxyConfig,
+        fingerprintConfig: {}
+    });
+
+    if (createResponse.code !== 0) {
+        throw new Error(`Failed to create AdsPower profile: ${createResponse.msg}`);
+    }
+
+    return createResponse.data.id;
+}
+
+// Launch browsers using AdsPower
+async function startWithAdsPower() {
+    console.log("Starting browsers with AdsPower");
+
+    const adsClient = new AdsPowerClient({
+        baseUrl: config.adspower.baseUrl,
+        apiKey: config.adspower.apiKey
+    });
+
+    for (const account of config.accounts) {
+        try {
+            // Get or create profile for this account
+            const profileId = await getOrCreateAdsPowerProfile(adsClient, account);
+            console.log(`Using AdsPower profile ${profileId} for account ${account.name}`);
+            const profileHash = crypto
+                .createHash('sha256')
+                .update(account.name)
+                .digest('hex');
+
+            const userDataDir = path.join(gitRoot, "..", "chrome-profiles", profileHash);
+            rimraf.sync(userDataDir);
+            if (!fs.existsSync(userDataDir)) {
+                fs.mkdirSync(userDataDir, {recursive: true});
+            }
+
+            // Build cookies array from raw cookie string
+            const cookiesArray = getCookies(account.cookie);
+
+            // Create extension in a subfolder
+            const extensionPath = path.join(userDataDir, "automation-extension");
+            createAutomationExtension(extensionPath, cookiesArray, account);
+
+            // Start browser with these settings
+            let launchArgs = [
+                `--user-data-dir=${userDataDir}`,
+                '--allow-insecure-localhost',
+                '--ignore-urlfetcher-cert-requests',
+                '--ignore-certificate-errors',
+                `--disable-extensions-except=${extensionPath},${path.resolve(gitRoot, "..", "chrome-extension")}`,
+                `--load-extension=${extensionPath},${path.resolve(gitRoot, "..", "chrome-extension")}`,
+                '--allow-insecure-localhost',
+                '--ignore-urlfetcher-cert-requests',
+                '--force-dark-mode',
+                '--no-sandbox',
+                '--ignore-certificate-errors',
+                '--disable-dev-shm-usage',
+                '--disable-background-networking',
+                '--disable-breakpad',
+                '--metrics-recording-only',
+                '--safebrowsing-disable-auto-update',
+                '--disable-crash-reporter',
+                '--disable-default-apps',
+                '--no-default-browser-check',
+                '--no-first-run',
+                '--disable-infobars',
+                '--disable-popup-blocking',
+                '--disable-sync',
+                '--disable-translate',
+                '--password-store=basic',
+                '--disable-features=CalculateNativeWinOcclusion',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-renderer-backgrounding',
+                '--force-color-profile=srgb',
+                '--autoplay-policy=no-user-gesture-required',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-ipc-flooding-protection',
+            ];
+
+            if (os.platform() === 'darwin') {
+                launchArgs.push('--use-mock-keychain');
+            }
+
+            const startResponse = await adsClient.openBrowser(profileId, {
+                urls: ['https://chatgpt.com'],
+                launchArgs: launchArgs
+            });
+
+            if (startResponse.code !== 0) {
+                throw new Error(`Failed to start AdsPower browser: ${startResponse.msg}`);
+            }
+
+            console.log(`Successfully launched AdsPower browser for account: ${account.name} (profile: ${profileId})`);
+        } catch (error) {
+            console.error(`Error starting AdsPower browser for account ${account.name}:`, error);
+        }
+    }
+}
+
+module.exports = {startChromeWithoutPuppeteer, startWithAdsPower};

@@ -10,7 +10,7 @@ const startMitmProxyForBrowser = require("./services/mitmproxy");
 const {logger} = require("./utils/utils");
 const {Server} = require("socket.io");
 const {StopGenerationCallback} = require("./services/reverseproxy_specialhandlers");
-const {startChromeWithoutPuppeteer} = require("./services/launch_chrome");
+const {startChromeWithoutPuppeteer, startWithAdsPower} = require("./services/launch_chrome");
 const {
     workers,
     accounts,
@@ -282,6 +282,7 @@ if (config.worker) {
         startMitmProxyForBrowser();
         setTimeout(() => {
             startChromeWithoutPuppeteer();
+            // startWithAdsPower();
         }, 1000);
     }, 1000);
 } else {
