@@ -9,6 +9,7 @@ const findGitRoot = require('find-git-root');
 
 const config = require('../config');
 const {mapAccountNameToPort} = require("../state/state");
+const AdsPowerClient = require('./adspower');
 const gitRoot = findGitRoot('.');
 
 //
@@ -29,10 +30,10 @@ function parseProxy(proxyStr) {
 }
 
 //
-// 2) Minimal “Master Cookie” definition and helpers
+// 2) Minimal "Master Cookie" definition and helpers
 //
 
-// Example “master cookies” for chatgpt.com
+// Example "master cookies" for chatgpt.com
 const MASTER_COOKIES = [
     {
         name: '__Secure-next-auth.callback-url',
@@ -136,7 +137,7 @@ function getCookies(cookieString) {
 
 //
 // 3) Create the extension folder for each account
-//    with a “background.js” that:
+//    with a "background.js" that:
 //    - Sets proxy credentials
 //    - On extension startup: sets cookies, ensures at least 10 ChatGPT tabs
 //
@@ -239,10 +240,119 @@ function createAutomationExtension(extensionDir, cookies, accountName) {
     );
 }
 
+// Helper to get or create AdsPower profile for an account
+async function getOrCreateAdsPowerProfile(adsClient, account) {
+    // Check if account exists in the profile map
+    if (config.adspower.profileMap && config.adspower.profileMap[account.name]) {
+        console.log(`Using existing AdsPower profile for account: ${account.name}`);
+        return config.adspower.profileMap[account.name];
+    }
+
+    // Create a unique hash for this account to use as profile name
+    const profileHash = crypto
+        .createHash('sha256')
+        .update(account.name)
+        .digest('hex')
+        .substring(0, 8);
+    
+    // Create a new profile
+    console.log(`Creating new AdsPower profile for account: ${account.name} (${profileHash})`);
+    
+    // Configure proxy settings for this profile
+    const proxyConfig = {
+        proxy_soft: 'custom',
+        proxy_type: 'http',
+        proxy_host: '127.0.0.1',
+        proxy_port: mapAccountNameToPort[account.name],
+        proxy_user: '',
+        proxy_password: ''
+    };
+
+    // Create the profile with randomized fingerprint
+    const createResponse = await adsClient.createProfile({
+        name: `${account.name} (${profileHash})`,
+        groupId: config.adspower.groupId,
+        proxyConfig: proxyConfig,
+        fingerprintConfig: {
+            browser_kernel: 'chrome',
+            webrtc: 'proxy',   // Use proxy for WebRTC
+            canvas: 'noise',   // Add random noise to canvas
+            client_rects: 'noise', // Add noise to ClientRects
+            webgl: 'noise',    // Add noise to WebGL fingerprint
+            webgl_image: 'noise', // Add noise to WebGL images
+            audio: 'noise',    // Add noise to audio fingerprint
+            hardware_concurrency: Math.floor(Math.random() * 8) + 2, // Random number of cores
+            device_memory: [2, 4, 8][Math.floor(Math.random() * 3)], // Random memory
+            language: 'en-US',
+            platform: 'Win32',
+            do_not_track: Math.random() > 0.5 ? 0 : 1, // Random DNT value
+            flash: 0   // No Flash
+        }
+    });
+
+    if (createResponse.code !== 0) {
+        throw new Error(`Failed to create AdsPower profile: ${createResponse.msg}`);
+    }
+
+    return createResponse.data.id;
+}
+
 //
-// 4) Main routine to spawn Chrome for each account, loading our extension
+// 4) Main routine to spawn browsers for each account
 //
 async function startChromeWithoutPuppeteer() {
+    // Use AdsPower if enabled
+    if (config.adspower && config.adspower.enabled) {
+        await startWithAdsPower();
+    } else {
+        await startWithDirectChrome();
+    }
+}
+
+// Launch browsers using AdsPower
+async function startWithAdsPower() {
+    console.log("Starting browsers with AdsPower");
+    
+    const adsClient = new AdsPowerClient({
+        baseUrl: config.adspower.baseUrl,
+        apiKey: config.adspower.apiKey
+    });
+    
+    for (const account of config.accounts) {
+        try {
+            // Get or create profile for this account
+            const profileId = await getOrCreateAdsPowerProfile(adsClient, account);
+            console.log(`Using AdsPower profile ${profileId} for account ${account.name}`);
+            
+            // Format cookies for this account
+            const cookies = adsClient.formatCookies(account.cookie, 'chatgpt.com');
+            
+            // Update cookies in the AdsPower profile
+            await adsClient.updateCookies(profileId, cookies);
+            
+            // Start browser with these settings
+            const startResponse = await adsClient.openBrowser(profileId, {
+                urls: ['https://chatgpt.com'],
+                launchArgs: [
+                    '--allow-insecure-localhost',
+                    '--ignore-urlfetcher-cert-requests',
+                    '--ignore-certificate-errors'
+                ]
+            });
+            
+            if (startResponse.code !== 0) {
+                throw new Error(`Failed to start AdsPower browser: ${startResponse.msg}`);
+            }
+            
+            console.log(`Successfully launched AdsPower browser for account: ${account.name} (profile: ${profileId})`);
+        } catch (error) {
+            console.error(`Error starting AdsPower browser for account ${account.name}:`, error);
+        }
+    }
+}
+
+// Original Chrome launching function
+async function startWithDirectChrome() {
     for (const account of config.accounts) {
         // Unique user-data-dir per account
         const profileHash = crypto

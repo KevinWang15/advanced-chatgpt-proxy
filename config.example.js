@@ -13,6 +13,18 @@ const config = {
     auth: {
         passcode: process.env.PASSCODE || 'securepasscode123',
     },
+    // AdsPower configuration
+    adspower: {
+        enabled: process.env.USE_ADSPOWER === 'true', // Set to true to use AdsPower instead of direct Chrome
+        apiKey: process.env.ADSPOWER_API_KEY || '', // Your AdsPower API key
+        baseUrl: process.env.ADSPOWER_API_URL || 'http://localhost:50325', // AdsPower local API endpoint
+        groupId: process.env.ADSPOWER_GROUP_ID || '', // Optional group ID for organizing profiles
+        // Maps account names to AdsPower profile IDs (if you've already created profiles)
+        profileMap: {
+            // 'a@a.com': 'adspowerId1',
+            // 'b@b.com': 'adspowerId2'
+        }
+    },
     accounts: [
         {
             name: "a@a.com",

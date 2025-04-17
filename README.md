@@ -12,6 +12,37 @@ you can commit more than 20 hours per month to development, I can provide reside
 An advanced proxy system for ChatGPT that uses browser automation to simulate user interactions and avoid triggering
 mechanisms that detect the proxy and trigger degradation.
 
+## Browser Fingerprinting Protection
+
+To prevent fingerprinting detection across multiple browser instances, this project supports two approaches:
+
+1. **Built-in Chrome Fingerprinting Protection**: Uses various Chrome flags to reduce fingerprinting
+2. **AdsPower Integration**: Uses the AdsPower fingerprinting browser for superior anti-detection
+
+### Setting up AdsPower Integration
+
+[AdsPower](https://www.adspower.net/) is a specialized anti-detection browser that creates unique browser fingerprints for each profile, preventing correlation between accounts. To use AdsPower with this project:
+
+1. Install AdsPower on your computer
+2. Create a config.js file based on config.example.js
+3. Configure the AdsPower section in your config.js:
+
+```javascript
+adspower: {
+    enabled: true, // Set to true to use AdsPower instead of direct Chrome
+    apiKey: 'your-adspower-api-key', // Your AdsPower API key
+    baseUrl: 'http://localhost:50325', // AdsPower local API endpoint (default)
+    groupId: 'optional-group-id', // Optional group ID for organizing profiles
+    // Maps account names to AdsPower profile IDs (if you've already created profiles)
+    profileMap: {
+        // 'a@a.com': 'adspowerId1',
+        // 'b@b.com': 'adspowerId2'
+    }
+}
+```
+
+The system will automatically create and manage browser profiles with randomized fingerprints for each account in your configuration.
+
 ## Disclaimer
 
 **IMPORTANT:** This project is an improved version of many existing ChatGPT proxies, intended to better support
