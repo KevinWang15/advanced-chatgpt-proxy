@@ -7,7 +7,8 @@ const {SocksClient} = require('socks');
 const forge = require('node-forge');
 const {createHttpsTunnel} = require("../utils/tunnel");
 const {findNFreePorts} = require("../utils/net");
-const config = require("../config");
+const path = require("path");
+const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const {mapAccountNameToPort, mapPortToAccountName, getSocketIOServerPort} = require("../state/state");
 
 
@@ -185,8 +186,9 @@ function handleAaaaaMitm(clientSocket, head) {
     const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
 
+        const [centralServerHost, centralServerPort] = config.worker.centralServer.split(":");
         // Create connection to target WebSocket server
-        const targetSocket = net.connect(await getSocketIOServerPort(), '127.0.0.1', () => {
+        const targetSocket = net.connect(+centralServerPort, centralServerHost, () => {
             console.log('Connected to WebSocket server at 127.0.0.1');
 
             // Set up error handling for the target socket

@@ -1,5 +1,6 @@
 const {logger} = require('../utils/utils');
-const config = require('../config');
+const path = require("path");
+const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const fs = require("node:fs");
 
 function handleSubscriptions(req, res) {
@@ -16,7 +17,7 @@ function handleSubscriptions(req, res) {
 
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 
@@ -26,7 +27,7 @@ function handleSubscriptions(req, res) {
 function handleChatRequirements(req, res) {
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 
@@ -44,7 +45,7 @@ function handleChatRequirements(req, res) {
 function handleSidebar(req, res) {
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 
@@ -56,7 +57,7 @@ function handleSidebar(req, res) {
 function handleImagesBootstrap(req, res) {
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 
@@ -69,7 +70,7 @@ function handleImagesBootstrap(req, res) {
 function handleGizmosBootstrap(req, res) {
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 
@@ -81,7 +82,7 @@ function handleGizmosBootstrap(req, res) {
 function handleMyRecentImageGen(req, res) {
     res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': config.server.url,
+        'Access-Control-Allow-Origin': config.centralServer.url,
         'access-control-allow-credentials': 'true',
     });
 

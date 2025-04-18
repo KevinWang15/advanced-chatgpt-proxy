@@ -393,11 +393,14 @@ whenReady(function () {
 
     // Load the Socket.io client library, then run the main logic
     loadScript("https://cdn.oaistatic.com/socket.io.min.js", async function () {
-        const accountName = await getAccountName();
+        const accountName = getAccountName();
 
         // Create socket connection with the workerId as query param (without accountName initially)
         socket = io("https://aaaaa.chatgpt.com/socketio", {
-            query: {workerId, accountName},
+            query: {workerId},
+            auth: {
+                account: JSON.parse(localStorage.getItem('chatgptAccount')),
+            },
             reconnection: true,
             reconnectionAttempts: 10,
             reconnectionDelay: 1000,
@@ -630,7 +633,11 @@ whenReady(function () {
 
 // Get account name from localStorage
 function getAccountName() {
-    return Promise.resolve(localStorage.getItem('chatgptProxyAccountName') || 'Unknown Account');
+    let acc = localStorage.getItem('chatgptAccount');
+    if (!acc) {
+        return 'Unknown Account';
+    }
+    return JSON.parse(acc).name;
 }
 
 function whenReady(callback) {

@@ -1,14 +1,36 @@
-const {v4: uuidv4} = require('uuid');
+if (!process.env.CONFIG) {
+    console.error("CONFIG environment variable is not set. Please set it to the path of your config file.");
+    process.exit(1);
+}
+
 const http = require('http');
-const startReverseProxy = require("./services/reverseproxy");
+const {startReverseProxy} = require("./services/reverseproxy");
 const {addConversationAccess} = require("./services/auth");
 const startMitmProxyForBrowser = require("./services/mitmproxy");
 const {logger} = require("./utils/utils");
 const {Server} = require("socket.io");
 const {StopGenerationCallback} = require("./services/reverseproxy_specialhandlers");
 const {startChromeWithoutPuppeteer} = require("./services/launch_chrome");
-const {getSocketIOServerPort} = require("./state/state");
+const {
+    workers,
+    getSocketIOServerPort
+} = require("./state/state");
+const path = require("path");
+const config = require(path.join(__dirname, process.env.CONFIG));
+const {
+    accountStatusMap,
+    scheduleInitialCheckForAccount,
+    handleMetrics,
+    performDegradationCheckForAccount
+} = require("./degradation");
 
+// Determine if this is a central server or a worker
+const isCentralServer = config.centralServer;
+if (isCentralServer) {
+    logger.info("Starting as CENTRAL SERVER");
+} else {
+    logger.info(`Starting as WORKER, connecting to central server: ${config.worker.centralServer}`);
+}
 
 delete process.env.http_proxy;
 delete process.env.https_proxy;
@@ -18,6 +40,7 @@ delete process.env.HTTPS_PROXY;
 delete process.env.ALL_PROXY;
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
 
+// Create Socket.IO server
 const socketIoHttpServer = http.createServer();
 const io = new Server(socketIoHttpServer, {
     path: "/socket.io/",
@@ -28,25 +51,18 @@ const io = new Server(socketIoHttpServer, {
 });
 
 const dynamicNsp = io.of(/^\/.*$/);
+
+// Initialize and start Socket.IO server
 (async function () {
-    const port = await getSocketIOServerPort();
-    socketIoHttpServer.listen(port, "127.0.0.1", () => {
-        console.log("SocketIO Server listening on http://127.0.0.1:" + port + " (this server is used for socketio, bi-directional communication between the chrome extension and the main server)");
-    });
+    if (isCentralServer) {
+        const port = await getSocketIOServerPort();
+        // Central server listens on configured port
+        const host = process.env.SOCKETIO_HOST || "127.0.0.1";
+        socketIoHttpServer.listen(port, host, () => {
+            logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
+        });
+    }
 })()
-
-// Store worker data in a Map keyed by workerId
-// Example structure of each entry:
-// workers[workerId] = {
-//   socket: <Socket>,
-//   lastHeartbeat: <Number: Date.now()>,
-//   available: <Boolean> - used to see if worker is free to handle new work
-//   responseWriter
-// }
-const workers = {};
-
-
-// Socket.io handles ping/pong automatically, no need for custom heartbeat checks
 
 async function findAvailableWorker(selectedAccount) {
     const startTime = Date.now();
@@ -55,7 +71,7 @@ async function findAvailableWorker(selectedAccount) {
     while (Date.now() - startTime < timeout) {
         for (const workerId in workers) {
             const data = workers[workerId];
-            if (data.available && data.accountName === selectedAccount.name) {
+            if (data.available && data.accountInfo.name === selectedAccount.name) {
                 return workerId;
             }
         }
@@ -142,22 +158,43 @@ io.engine.pingTimeout = 60000; // How long to wait for a ping response (ms)
 io.engine.pingInterval = 10000; // How often to ping clients (ms)
 
 dynamicNsp.on("connection", (socket) => {
-    // The worker should send us its workerId right away (e.g. in handshake or first event).
-    // We'll assume the client is sending the workerId in the query string or first message.
-    const {workerId, accountName} = socket.handshake.query;
+    // Get worker info from handshake query
+    const {workerId} = socket.handshake.query;
+
+    const {account} = socket.handshake.auth;
 
     if (!workerId) {
         console.log("A connection was made without a workerId. Disconnecting...");
         return socket.disconnect(true);
     }
 
-    console.log(`Worker ${workerId} (${accountName}) connected.`);
+    if (!account.name) {
+        console.log("A connection was made without an accountName. Disconnecting...");
+        return socket.disconnect(true);
+    }
+
+    console.log(`Worker ${workerId} (${account.name}) connected.`);
+
+
+    // Store worker with account info
     workers[workerId] = {
         socket,
-        accountName,
+        accountInfo: account,
         available: true,
     };
 
+    if (!accountStatusMap[account.name]) {
+        // Initialize tracking for this account
+        accountStatusMap[account.name] = {
+            lastDegradationResult: null,
+            lastCheckTime: null,
+            checkInProgress: false
+        };
+
+        // Schedule initial check
+        scheduleInitialCheckForAccount(account);
+        logger.info(`Added degradation check for new account: ${account.name}`);
+    }
 
     // When the socket disconnects
     socket.on("disconnect", () => {
@@ -168,7 +205,6 @@ dynamicNsp.on("connection", (socket) => {
         }
         delete workers[workerId];
     });
-
 
     socket.on("network", (data) => {
         handleNetwork({...data, workerId: workerId}, socket);
@@ -237,11 +273,15 @@ function handleNetwork(data, socket) {
     }
 }
 
-
-startReverseProxy({doWork});
-setTimeout(() => {
-    startMitmProxyForBrowser();
+if (config.worker) {
+    // worker mode
     setTimeout(() => {
-        startChromeWithoutPuppeteer();
+        startMitmProxyForBrowser();
+        setTimeout(() => {
+            startChromeWithoutPuppeteer();
+        }, 1000);
     }, 1000);
-}, 1000);
+} else {
+    // central server mode
+    startReverseProxy({doWork, handleMetrics, performDegradationCheckForAccount});
+}

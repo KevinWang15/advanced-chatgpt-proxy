@@ -8,3 +8,5 @@ chrome-profiles
 
 x.js
 config.bak.js
+config.centralserver.js
+config.worker.js

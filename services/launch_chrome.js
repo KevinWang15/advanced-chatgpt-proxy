@@ -7,32 +7,10 @@ const fs = require('fs');
 const os = require('os');
 const findGitRoot = require('find-git-root');
 
-const config = require('../config');
+const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const {mapAccountNameToPort} = require("../state/state");
 const gitRoot = findGitRoot('.');
 
-//
-// 1) Function to parse proxy credentials
-//
-function parseProxy(proxyStr) {
-    try {
-        const parsedUrl = new URL(proxyStr);
-        return {
-            protocol: parsedUrl.protocol,  // e.g. "https:"
-            host: parsedUrl.host,          // e.g. "site.com:8080"
-            username: parsedUrl.username,  // e.g. "user"
-            password: parsedUrl.password   // e.g. "pass"
-        };
-    } catch (err) {
-        throw new Error(`Invalid proxy URL: ${proxyStr} — ${err.message}`);
-    }
-}
-
-//
-// 2) Minimal “Master Cookie” definition and helpers
-//
-
-// Example “master cookies” for chatgpt.com
 const MASTER_COOKIES = [
     {
         name: '__Secure-next-auth.callback-url',
@@ -134,13 +112,8 @@ function getCookies(cookieString) {
         });
 }
 
-//
 // 3) Create the extension folder for each account
-//    with a “background.js” that:
-//    - Sets proxy credentials
-//    - On extension startup: sets cookies, ensures at least 10 ChatGPT tabs
-//
-function createAutomationExtension(extensionDir, cookies, accountName) {
+function createAutomationExtension(extensionDir, cookies, account) {
     fs.mkdirSync(extensionDir, {recursive: true});
 
     // A minimal MV3 manifest.json
@@ -172,11 +145,10 @@ function createAutomationExtension(extensionDir, cookies, accountName) {
       if (changeInfo.status === 'complete' && tab.url && tab.url.includes('chatgpt.com')) {
         chrome.scripting.executeScript({
           target: { tabId },
-          func: (accountName) => {
-            localStorage.setItem('chatgptProxyAccountName', accountName);
-            console.log('Account name saved to localStorage:', accountName);
+          func: (account) => {
+            localStorage.setItem('chatgptAccount', account);
           },
-          args: ['${accountName}']
+          args: [${JSON.stringify(JSON.stringify(account))}]
         });
       }
     });
@@ -259,7 +231,7 @@ async function startChromeWithoutPuppeteer() {
 
         // Create extension in a subfolder
         const extensionPath = path.join(userDataDir, "automation-extension");
-        createAutomationExtension(extensionPath, cookiesArray, account.name);
+        createAutomationExtension(extensionPath, cookiesArray, account);
 
         // Now spawn Chrome as a normal process
         // The below flags are somewhat similar to those you used with Puppeteer

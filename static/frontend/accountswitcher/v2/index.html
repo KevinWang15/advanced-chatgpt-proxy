@@ -164,6 +164,32 @@
             color: #e74c3c;
         }
 
+        .no-accounts {
+            padding: 40px 20px;
+            text-align: center;
+            color: #7f8c8d;
+        }
+
+        .no-accounts-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #bdc3c7;
+        }
+
+        .no-accounts-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+
+        .no-accounts-message {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            max-width: 320px;
+            margin: 0 auto;
+        }
+
         .footer {
             padding: 16px;
             text-align: center;
@@ -258,6 +284,20 @@
             return;
         }
 
+        // Check if there are no accounts available
+        if (state.accounts.length === 0) {
+            contentElement.innerHTML = `
+                <div class="no-accounts">
+                    <div class="no-accounts-icon">📭</div>
+                    <div class="no-accounts-title">No Accounts Available</div>
+                    <div class="no-accounts-message">
+                        There are currently no OpenAI accounts available. Please check back later or contact me if this issue persists.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         // Start building the account list HTML
         let html = '<div class="account-list">';
 
@@ -294,20 +334,20 @@
             }
 
             html += `
-                    <div class="account-item ${isActive ? 'active' : ''}" data-account="${account.name}">
-                        ${isActive ? '<div class="active-indicator"></div>' : ''}
-                        <div class="account-info">
-                            <div class="account-name">${account.name}</div>
-                            <div class="status-wrapper">
-                                <span class="plan-badge ${planClass}">${account.labels.plan}</span>
-                                <div class="degradation-indicator">
-                                    <div class="degradation-dot degradation-${degradationLevel}"></div>
-                                    <span>${degradationText}</span>
-                                </div>
+                <div class="account-item ${isActive ? 'active' : ''}" data-account="${account.name}">
+                    ${isActive ? '<div class="active-indicator"></div>' : ''}
+                    <div class="account-info">
+                        <div class="account-name">${account.name}</div>
+                        <div class="status-wrapper">
+                            <span class="plan-badge ${planClass}">${account.labels.plan}</span>
+                            <div class="degradation-indicator">
+                                <div class="degradation-dot degradation-${degradationLevel}"></div>
+                                <span>${degradationText}</span>
                             </div>
                         </div>
                     </div>
-                `;
+                </div>
+            `;
         });
 
         html += '</div>';
@@ -359,11 +399,6 @@
                 throw new Error(`Failed to fetch accounts. Status: ${accountsResponse.status}`);
             }
             state.accounts = await accountsResponse.json();
-
-            // If no account is selected, default to the first one
-            if (!state.currentAccount && state.accounts.length > 0) {
-                state.currentAccount = state.accounts[0].name;
-            }
 
             // Fetch metrics for degradation info
             try {
