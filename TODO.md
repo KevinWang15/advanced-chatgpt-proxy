@@ -9,13 +9,11 @@
 
 * 优化first load
 * 多实例 -  maybe需要指纹浏览器
-* 那个heartbeat到底怎么会fail
 * 网关模式
   * 动态路由优选
 * 把用户体系做做好
 * quality of life
-  * 登入之后得到cookies
-  * 登入之后得到Access token
+  * 登入之后得到Access token，这样就无需让用户再配置一个
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
 * advanced voice mode
 * Worker disconnect unexpectedly之后，如果已经提交了生成请求，用户会没有这个会话的权限
@@ -26,8 +24,6 @@
 * deep research 的图片
 * https://web-sandbox.oaiusercontent.com/
 * 解决各种 // TODO
-* worker count metrics & alert
-* 一键截图ChatGPT
 * inpaint功能，修改图片
 * 在canvas当中选中并且提问
 * 代码质量优化
@@ -39,4 +35,3 @@
 * Operator
 * GPTs
 * Projects
-* Codex

@@ -9,6 +9,7 @@ const findGitRoot = require('find-git-root');
 
 const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const {mapAccountNameToPort} = require("../state/state");
+const {rimraf} = require("rimraf");
 const gitRoot = findGitRoot('.');
 
 const MASTER_COOKIES = [
@@ -136,7 +137,7 @@ function createAutomationExtension(extensionDir, cookies, account) {
             type: "module"
         }
     };
-    
+
     // Save account name to a global variable in the extension
 
     const backgroundJs = `
@@ -222,6 +223,7 @@ async function startChromeWithoutPuppeteer() {
             .update(account.name)
             .digest('hex');
         const userDataDir = path.join(gitRoot, "..", "chrome-profiles", profileHash);
+        rimraf.sync(userDataDir);
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, {recursive: true});
         }

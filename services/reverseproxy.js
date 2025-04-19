@@ -354,6 +354,7 @@ function getHttpsProxyAgent(selectedAccount) {
     if (!getHttpsProxyAgentCache[selectedAccount.proxy]) {
         getHttpsProxyAgentCache[selectedAccount.proxy] = new HttpsProxyAgent(selectedAccount.proxy);
     }
+    console.log("selected proxy",selectedAccount.proxy);
     return getHttpsProxyAgentCache[selectedAccount.proxy];
 }
 
