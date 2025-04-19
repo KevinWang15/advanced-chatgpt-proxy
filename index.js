@@ -13,6 +13,7 @@ const {StopGenerationCallback} = require("./services/reverseproxy_specialhandler
 const {startChromeWithoutPuppeteer} = require("./services/launch_chrome");
 const {
     workers,
+    accounts,
     getSocketIOServerPort
 } = require("./state/state");
 const path = require("path");
@@ -57,7 +58,7 @@ const dynamicNsp = io.of(/^\/.*$/);
     if (isCentralServer) {
         const port = await getSocketIOServerPort();
         // Central server listens on configured port
-        const host = process.env.SOCKETIO_HOST || "127.0.0.1";
+        const host = config.centralServer.host || "127.0.0.1";
         socketIoHttpServer.listen(port, host, () => {
             logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
         });
@@ -71,7 +72,7 @@ async function findAvailableWorker(selectedAccount) {
     while (Date.now() - startTime < timeout) {
         for (const workerId in workers) {
             const data = workers[workerId];
-            if (data.available && data.accountInfo.name === selectedAccount.name) {
+            if (data.available && data.accountName === selectedAccount.name) {
                 return workerId;
             }
         }
@@ -179,9 +180,11 @@ dynamicNsp.on("connection", (socket) => {
     // Store worker with account info
     workers[workerId] = {
         socket,
-        accountInfo: account,
+        accountName: account.name,
         available: true,
     };
+
+    accounts[account.name] = account;
 
     if (!accountStatusMap[account.name]) {
         // Initialize tracking for this account

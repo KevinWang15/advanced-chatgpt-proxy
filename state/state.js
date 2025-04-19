@@ -11,17 +11,10 @@ const config = require(path.join(__dirname, "..", process.env.CONFIG));
 // }
 const workers = {};
 
+const accounts = {};
+
 // Get all accounts based on connected workers
 const getAllAccounts = () => {
-    const accounts = {};
-
-    for (const workerId in workers) {
-        const worker = workers[workerId];
-        if (worker.accountInfo) {
-            accounts[worker.accountInfo.name] = worker.accountInfo;
-        }
-    }
-
     return Object.values(accounts);
 };
 
@@ -40,5 +33,6 @@ module.exports = {
     mapPortToAccountName,
     getSocketIOServerPort,
     workers,
+    accounts,
     getAllAccounts,
 };

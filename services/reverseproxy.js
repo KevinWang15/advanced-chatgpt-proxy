@@ -351,10 +351,10 @@ function incrementUsage(accountName, model) {
 const getHttpsProxyAgentCache = {};
 
 function getHttpsProxyAgent(selectedAccount) {
-    if (!getHttpsProxyAgentCache[selectedAccount.name]) {
-        getHttpsProxyAgentCache[selectedAccount.name] = new HttpsProxyAgent(selectedAccount.proxy);
+    if (!getHttpsProxyAgentCache[selectedAccount.proxy]) {
+        getHttpsProxyAgentCache[selectedAccount.proxy] = new HttpsProxyAgent(selectedAccount.proxy);
     }
-    return getHttpsProxyAgentCache[selectedAccount.name];
+    return getHttpsProxyAgentCache[selectedAccount.proxy];
 }
 
 /**
@@ -369,6 +369,8 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
         headers['accept-encoding'] = 'identity';
         delete headers['if-modified-since'];
         delete headers['if-none-match'];
+        delete headers['x-real-ip'];
+        delete headers['x-forwarded-for'];
 
         const canCache = targetHost === 'cdn.oaistatic.com' && targetPath.includes("/assets/");
         const cacheKey = `${req.method}:${targetHost}:${targetPath}`;
