@@ -369,6 +369,8 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
         headers['accept-encoding'] = 'identity';
         delete headers['if-modified-since'];
         delete headers['if-none-match'];
+        delete headers['x-real-ip'];
+        delete headers['x-forwarded-for'];
 
         const canCache = targetHost === 'cdn.oaistatic.com' && targetPath.includes("/assets/");
         const cacheKey = `${req.method}:${targetHost}:${targetPath}`;
