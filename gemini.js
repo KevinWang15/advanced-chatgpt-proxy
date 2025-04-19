@@ -1,17 +1,20 @@
-document.querySelector('.ql-editor').innerText = "aaa"
+function ask(question) {
+    document.querySelector('.ql-editor').innerText = question;
 
-// _.Sma=function(a,b){return
-// c=b.Rxc;return zQc(a,b.context.request 从这里找应该也能有发现
+    setTimeout(() => {
+        document.querySelector('.send-button').click();
+    }, 1000);
+}
 
+// ask("write code for the 8 queen problem in python")
+// ask("write a poem")
 
 /**
  * f),_.B(function(g){var h=_.m(g);g=h.next().value;h=h
- * if(g[0].responseType==='TURN') { console.log(g[0].response.Sa.Ak); }
+ * f),_.B(function(g){if(g[0].responseType==='TURN') { console.log(g[0].response.Sa.Ak); }; var h=_.m(g);g=h.next().value;h=h
+ *
+ *
  */
-setTimeout(() => {
-    document.querySelector('.send-button').click();
-}, 1000);
-
 function wantsToLogUrl(requestUrl) {
     return requestUrl.includes("StreamGenerate");
 }
