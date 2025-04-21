@@ -170,7 +170,7 @@ dynamicNsp.on("connection", (socket) => {
         return socket.disconnect(true);
     }
 
-    if (!account.name) {
+    if (!account?.name) {
         console.log("A connection was made without an accountName. Disconnecting...");
         return socket.disconnect(true);
     }

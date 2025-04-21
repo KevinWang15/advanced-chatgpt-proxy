@@ -31,6 +31,17 @@ const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = requ
 const {HttpsProxyAgent} = require("https-proxy-agent");
 const {workers, getAllAccounts} = require("../state/state");
 
+const mimeTypes = {
+    '.js': 'application/javascript',
+    '.css': 'text/css',
+    '.html': 'text/html',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+};
+
 const cookieMaxAge = 100 * 365 * 24 * 60 * 60 * 1000;
 
 function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAccount}) {
@@ -171,9 +182,26 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             if (req.url.length > 5 && !req.url.includes('..')) {
                 const filePath = path.join(__dirname, '../static', req.url);
                 if (fs.existsSync(filePath)) {
-                    // Serve static file if found
-                    res.writeHead(200, {'Content-Type': 'text/plain'});
-                    fs.createReadStream(filePath).pipe(res);
+                    const ext = path.extname(filePath);
+                    const contentType = (mimeTypes[ext] || 'text/plain') + '; charset=utf8';
+
+                    if (['.js', '.html', '.css', '.txt'].includes(ext)) {
+                        fs.readFile(filePath, 'utf8', (err, data) => {
+                            if (err) {
+                                res.writeHead(500, {'Content-Type': 'text/plain; charset=utf8'});
+                                res.end('Internal Server Error');
+                                return;
+                            }
+                            // Replace the placeholder with the config value
+                            const output = data.replace(/__INJECT_ANNOUNCEMENT_URL__/g, config?.announcement?.url || '');
+                            res.writeHead(200, {'Content-Type': contentType});
+                            res.end(output);
+                        });
+                    } else {
+                        // Serve other static files (non-text) directly
+                        res.writeHead(200, {'Content-Type': contentType});
+                        fs.createReadStream(filePath).pipe(res);
+                    }
                     return;
                 }
             }
@@ -354,7 +382,7 @@ function getHttpsProxyAgent(selectedAccount) {
     if (!getHttpsProxyAgentCache[selectedAccount.proxy]) {
         getHttpsProxyAgentCache[selectedAccount.proxy] = new HttpsProxyAgent(selectedAccount.proxy);
     }
-    console.log("selected proxy",selectedAccount.proxy);
+    console.log("selected proxy", selectedAccount.proxy);
     return getHttpsProxyAgentCache[selectedAccount.proxy];
 }
 
@@ -527,7 +555,16 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                 ) {
                     modifiedContent = modifiedContent.replace(
                         '</head>',
-                        '<script src="/assets/inject-script.js"/></head>'
+                        '<script src="/assets/inject-script.js"></script></head>',
+                    );
+                }
+
+                if (
+                    req.method === 'GET'
+                ) {
+                    modifiedContent = modifiedContent.replace(
+                        '</head>',
+                        '<script src="/assets/announcement.js"></script></head>',
                     );
                 }
 
@@ -724,4 +761,4 @@ function handleConversation(req, res, {doWork, selectedAccount}) {
     });
 }
 
-module.exports = {usageCounters,startReverseProxy};
+module.exports = {usageCounters, startReverseProxy};
