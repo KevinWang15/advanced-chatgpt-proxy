@@ -4,6 +4,7 @@ const {getInternalAuthenticationToken} = require("./services/auth");
 const axios = require("axios");
 const {v4: uuidv4} = require("uuid");
 const {usageCounters} = require("./services/reverseproxy");
+const {getAllAccounts} = require("./state/state");
 
 
 // Keep track of each account’s status
@@ -12,25 +13,48 @@ const accountStatusMap = {};
 // Initialize the periodic check when the server starts
 initializeCleanupJob();
 
-/**
- * Schedule the next check for an account at a random time between 20 and 30 minutes.
- */
-function scheduleNextCheckForAccount(account) {
-    const nextDelay = getRandomMs(200, 300);
-    setTimeout(async () => {
-        await performDegradationCheckForAccount(account);
-        scheduleNextCheckForAccount(account);
-    }, nextDelay);
-}
+setInterval(() => {
+    const accounts = getAllAccounts();
 
-/**
- * Utility to get a random millisecond value between minMinutes and maxMinutes.
- */
-function getRandomMs(minMinutes, maxMinutes) {
-    // Calculate a random interval in the range [minMinutes, maxMinutes]
-    const randomMinutes = Math.random() * (maxMinutes - minMinutes) + minMinutes;
-    return Math.floor(randomMinutes * 60 * 1000);
-}
+    accounts.forEach(account => {
+        const accountState = accountStatusMap[account.name];
+
+        // If no accountState exists, skip this account
+        if (!accountState) return;
+
+        const {lastCheckTime} = accountState;
+
+        // Check if last check time is less than 3 hours ago
+        if (lastCheckTime && Date.now() - lastCheckTime < 3 * 60 * 60 * 1000) {
+            // No need to perform a check if it's less than 3 hours ago
+            return;
+        }
+
+        // If it's greater than 5 hours ago, perform a degradation check
+        if (lastCheckTime && Date.now() - lastCheckTime > 5 * 60 * 60 * 1000) {
+            // Introduce a jitter (1 to 5 minutes)
+            const jitter = Math.floor(Math.random() * 5 + 1) * 60 * 1000; // 1 to 5 minutes in ms
+
+            setTimeout(() => {
+                console.log(`Performing degradation check for ${account.name} (Last check was more than 5 hours ago)`);
+                performDegradationCheckForAccount(account);
+            }, jitter);
+
+            return;
+        }
+
+        // If it's between 3 and 5 hours ago, we perform the check with 10% chance
+        if (lastCheckTime && Date.now() - lastCheckTime >= 3 * 60 * 60 * 1000 && Math.random() < 0.1) {
+            // Introduce a jitter (1 to 5 minutes)
+            const jitter = Math.floor(Math.random() * 5 + 1) * 60 * 1000; // 1 to 5 minutes in ms
+
+            setTimeout(() => {
+                console.log(`Performing degradation check for ${account.name} (Last check was between 3 and 5 hours ago, 10% chance)`);
+                performDegradationCheckForAccount(account);
+            }, jitter);
+        }
+    });
+}, 600000);
 
 /**
  * Perform the degradation check for a single account with retry logic
@@ -143,12 +167,12 @@ chatgpt_last_check_timestamp{${labelString}} ${Math.floor(lastCheckTime / 1000)}
 function initializeCleanupJob() {
     setInterval(() => {
         const now = Date.now();
-        const cutoff = 35 * 60 * 1000; // 35 minutes in milliseconds
+        const cutoff = 6 * 60 * 60 * 1000;
 
         for (const [accountName, accountState] of Object.entries(accountStatusMap)) {
             const {lastCheckTime} = accountState;
 
-            // If lastCheckTime exists and is older than 35 minutes
+            // If lastCheckTime exists and is older than 6 hours
             if (lastCheckTime && (now - lastCheckTime) > cutoff) {
                 console.log(`Clearing degradation metrics for "${accountName}" due to inactivity (>35 min).`);
 
@@ -342,4 +366,4 @@ async function checkDegradation(account) {
     }
 }
 
-module.exports = {accountStatusMap, handleMetrics,  performDegradationCheckForAccount, scheduleNextCheckForAccount}
+module.exports = {accountStatusMap, handleMetrics, performDegradationCheckForAccount}

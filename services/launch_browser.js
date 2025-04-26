@@ -50,7 +50,7 @@ async function getOrCreateAdsPowerProfile(adsClient, account, port) {
         const listResponse = await adsClient.listProfiles(config.adspower.groupId);
         if (listResponse.code === 0 && listResponse.data?.list) {
             const existingProfile = listResponse.data.list.find(
-                (profile) => profile.name.startsWith(profileName.split(':')[0])
+                (profile) => profile.name.startsWith(account.name)
             );
             if (existingProfile && existingProfile.profile_id) {
                 console.log(

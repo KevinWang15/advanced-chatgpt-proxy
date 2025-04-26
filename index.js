@@ -21,9 +21,8 @@ const path = require("path");
 const config = require(path.join(__dirname, process.env.CONFIG));
 const {
     accountStatusMap,
-    scheduleInitialCheckForAccount,
     handleMetrics,
-    performDegradationCheckForAccount
+    performDegradationCheckForAccount,
 } = require("./degradation");
 const {startAdminConsole} = require("./admin/main");
 
@@ -200,8 +199,6 @@ dynamicNsp.on("connection", (socket) => {
             checkInProgress: false
         };
 
-        // Schedule initial check
-        scheduleInitialCheckForAccount(account);
         logger.info(`Added degradation check for new account: ${account.name}`);
     }
 

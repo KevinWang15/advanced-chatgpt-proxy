@@ -65,7 +65,7 @@ router.post('/api/restart-browser/:name', async (req, res) => {
 
     try {
         // Call the restartBrowser function (console.log for now)
-        console.log(`Restarting browser for account: ${accountName}`, account);
+        console.log(`Restarting browser for account: ${accountName}`);
         setTimeout(async () => {
             try {
                 await restartBrowser(account);
@@ -74,7 +74,7 @@ router.post('/api/restart-browser/:name', async (req, res) => {
             }
         })
 
-        res.json({success: true, message: `Browser for ${accountName} restarted successfully`});
+        res.json({success: true});
     } catch (error) {
         console.error(`Error restarting browser for ${accountName}:`, error);
         res.status(500).json({success: false, message: 'Failed to restart browser'});
@@ -92,11 +92,11 @@ router.post('/api/delete-browser/:name', async (req, res) => {
 
     try {
         // Call the deleteBrowser function (console.log for now)
-        console.log(`Restarting browser for account: ${accountName}`, account);
+        console.log(`Restarting browser for account: ${accountName}`);
         deleteBrowser(account);
 
         // Return success response
-        res.json({success: true, message: `Browser for ${accountName} deleted successfully`});
+        res.json({success: true});
     } catch (error) {
         console.error(`Error deleting browser for ${accountName}:`, error);
         res.status(500).json({success: false, message: 'Failed to delete browser'});
