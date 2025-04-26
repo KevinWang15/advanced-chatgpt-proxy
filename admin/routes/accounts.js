@@ -92,7 +92,7 @@ router.post('/api/delete-browser/:name', async (req, res) => {
 
     try {
         // Call the deleteBrowser function (console.log for now)
-        console.log(`Restarting browser for account: ${accountName}`);
+        console.log(`Deleting browser for account: ${accountName}`);
         deleteBrowser(account);
 
         // Return success response
