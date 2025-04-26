@@ -412,7 +412,7 @@ async function deleteAccountBrowser(accountName) {
     const result = await response.json();
 
     if (response.ok) {
-      showNotification("Success", result.message);
+      showNotification("Success", "Request sent");
     } else {
       showNotification("Error", result.message, "danger");
     }
@@ -440,7 +440,7 @@ async function restartAccountBrowser(accountName) {
     const result = await response.json();
 
     if (response.ok) {
-      showNotification("Success", result.message);
+      showNotification("Success", "Request sent");
     } else {
       showNotification("Error", result.message, "danger");
     }

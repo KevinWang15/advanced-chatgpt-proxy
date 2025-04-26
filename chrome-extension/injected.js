@@ -418,8 +418,8 @@ whenReady(function () {
         });
 
         // If the socket disconnects, destroy the worker
-        socket.on("disconnect", () => {
-            console.warn("Socket disconnected; destroying worker.");
+        socket.on("reconnect_failed", () => {
+            console.warn("Socket reconnect_failed; destroying worker.");
             statusText.textContent = "Disconnected";
             statusEmoji.textContent = "❌";
             overlay.className = "disconnected";

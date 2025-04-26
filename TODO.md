@@ -33,3 +33,17 @@
 * Sora
 * Operator
 * GPTs
+
+---
+
+# o3降智检测
+
+```
+solve the 24 problem with 2,3,5,12, output in the following format:
+
+> const solution = 2+3+5+12; // (this is incorrect, find the correct solution and output it here)
+
+just output the javascript code to set the `solution`, do not output anything else.
+```
+
+and no `a few seconds`

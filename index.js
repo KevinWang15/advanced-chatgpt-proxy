@@ -22,7 +22,7 @@ const config = require(path.join(__dirname, process.env.CONFIG));
 const {
     accountStatusMap,
     handleMetrics,
-    performDegradationCheckForAccount,
+    performDegradationCheckForAccount, scheduleInitialCheckForAccount,
 } = require("./degradation");
 const {startAdminConsole} = require("./admin/main");
 
@@ -107,20 +107,6 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 
             // Clear the ack timeout
             clearTimeout(ackTimeout);
-
-            // If worker disconnects before finishing
-            const handleDisconnect = () => {
-                cleanupListeners();
-                resolve();
-            };
-
-            const cleanupListeners = () => {
-                socket.off("disconnect", handleDisconnect);
-                socket.off("ackWork", handleAck);
-            };
-
-            // Listen for events
-            socket.once("disconnect", handleDisconnect);
         };
 
         // If worker fails to ack within 2 seconds, remove it and try again
@@ -163,11 +149,20 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 io.engine.pingTimeout = 60000; // How long to wait for a ping response (ms)
 io.engine.pingInterval = 10000; // How often to ping clients (ms)
 
+const pendingPurges = new Map();
 dynamicNsp.on("connection", (socket) => {
     // Get worker info from handshake query
     const {workerId} = socket.handshake.query;
 
     const {account} = socket.handshake.auth;
+
+    if (!accountStatusMap[account.name]) {
+        accountStatusMap[account.name] = {
+            lastDegradationResult: null,
+            lastCheckTime: null,
+            checkInProgress: false
+        };
+    }
 
     if (!workerId) {
         console.log("A connection was made without a workerId. Disconnecting...");
@@ -181,7 +176,6 @@ dynamicNsp.on("connection", (socket) => {
 
     console.log(`Worker ${workerId} (${account.name}) connected.`);
 
-
     // Store worker with account info
     workers[workerId] = {
         socket,
@@ -191,32 +185,34 @@ dynamicNsp.on("connection", (socket) => {
 
     accounts[account.name] = account;
 
-    if (!accountStatusMap[account.name]) {
-        // Initialize tracking for this account
-        accountStatusMap[account.name] = {
-            lastDegradationResult: null,
-            lastCheckTime: null,
-            checkInProgress: false
-        };
-
-        logger.info(`Added degradation check for new account: ${account.name}`);
+    //  Cancel a scheduled purge if this worker managed to come back
+    if (pendingPurges.has(workerId)) {
+        clearTimeout(pendingPurges.get(workerId));
+        pendingPurges.delete(workerId);
+        console.log(`Worker ${workerId} re-connected within grace period`);
     }
 
-    // When the socket disconnects
-    socket.on("disconnect", () => {
-        console.log(`Worker ${workerId} disconnected. Cleaning up.`);
-        if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
-            workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
-            workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
-        }
-        purgeWorker(workerId);
+    //  Normal disconnect handling
+    socket.on("disconnect", (reason) => {
+        console.log(`Worker ${workerId} disconnected (${reason})`);
+
+        const timer = setTimeout(() => {
+            console.log(`Worker ${workerId} disconnected and didn't come back within grace period. Cleaning up.`);
+            if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
+                workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
+                workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
+            }
+            purgeWorker(workerId);
+            pendingPurges.delete(workerId);
+        }, 10000);
+
+        pendingPurges.set(workerId, timer);
     });
 
     socket.on("network", (data) => {
         handleNetwork({...data, workerId: workerId}, socket);
     });
 });
-
 
 // Handle network messages
 function handleNetwork(data, socket) {
