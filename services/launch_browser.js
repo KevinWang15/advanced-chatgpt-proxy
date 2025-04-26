@@ -340,12 +340,10 @@ async function deleteAdsPower(account) {
 
     try {
         const listResponse = await adsClient.listProfiles(config.adspower.groupId);
-        console.log("@@listResponse",JSON.stringify(listResponse));
         if (listResponse.code === 0 && listResponse.data?.list) {
             for (let profile of listResponse.data.list.filter(
                 (profile) => profile.name.startsWith(account.name)
             )) {
-                console.log("@@ delete profile", profile.profile_id);
                 await adsClient.closeBrowser(profile.profile_id);
                 await adsClient.deleteBrowser(profile.profile_id);
             }

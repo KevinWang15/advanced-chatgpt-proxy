@@ -53,7 +53,6 @@ class AdsPowerClient {
                 api_key: this.apiKey,
                 profile_id
             });
-            console.log("@@ delete profile resp", response.data);
 
             return response.data;
         } catch (error) {
@@ -85,7 +84,7 @@ class AdsPowerClient {
             const response = await axios.post(`${this.baseUrl}/api/v2/browser-profile/list`, {
                 api_key: this.apiKey,
                 group_id: groupId,
-                page_size: 1000
+                limit: 1000
             });
 
             return response.data;
