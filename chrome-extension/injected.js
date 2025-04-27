@@ -486,6 +486,7 @@ whenReady(function () {
                 }
 
                 window.hpcrp = {...task.raw_payload, path_to_message: undefined};
+                window.hpcrpm = {...task.raw_payload, path_to_message: undefined};
                 window.hpcrp2 = {...task.raw_payload, path_to_message: undefined};
                 window.hpmid = task.preferred_message_id;
                 delete_conversation_immediately_afterwards = task.raw_payload.delete_conversation_immediately_afterwards;
