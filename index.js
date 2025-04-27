@@ -204,7 +204,7 @@ dynamicNsp.on("connection", (socket) => {
             }
             purgeWorker(workerId);
             pendingPurges.delete(workerId);
-        }, 10000);
+        }, 10000); //TODO
 
         pendingPurges.set(workerId, timer);
     });

@@ -7,10 +7,16 @@
 
 ---
 
-* reconnect还要思考一下，现在有not come back但是client显示已连的
-* 网关模式, 动态路由优选
+
 * 用户注册开通服务keycloak (邀请码注册自动兑换时长)
-* 选车限流聊天记录
+* 选车限流聊天记录，聊天记录要能够帮用户存一份 (前端每隔10秒问一下服务器某个conversation最新的message id，如果mismatch就下载一份全量发送给服务器)
+* 数据面稳定性
+
+* reconnect还要思考一下，现在有not come back但是client显示已连的
+* 会闪烁
+
+
+* 网关模式, 动态路由优选
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
 * advanced voice mode
 * Worker disconnect unexpectedly之后，如果已经提交了生成请求，用户会没有这个会话的权限

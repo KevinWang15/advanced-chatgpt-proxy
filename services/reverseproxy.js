@@ -191,12 +191,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
         const accountName = req.headers['x-account-name'] || req.cookies['account_name'];
         const selectedAccount = getSelectedAccount(accountName);
         if (!selectedAccount) {
-            res.writeHead(401, {'Content-Type': 'application/json'});
-            if (accountName) {
-                return res.end(JSON.stringify({error: `No worker available for account ${accountName}, please retry or go to /accountswitcher/ to use another account`}));
-            } else {
-                return res.end(JSON.stringify({error: `You haven't chosen an account yet, please go to /accountswitcher/ to choose an account`}));
-            }
+            return res.redirect('/accountswitcher');
         }
         delete req.headers['x-account-name'];
         delete req.cookies['account_name'];

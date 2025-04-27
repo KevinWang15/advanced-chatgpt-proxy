@@ -392,6 +392,7 @@ whenReady(function () {
 
         // Create socket connection with the workerId as query param (without accountName initially)
         socket = io("https://aaaaa.chatgpt.com/socketio", {
+            transports: ['polling'],
             query: {workerId},
             auth: {
                 account: JSON.parse(localStorage.getItem('chatgptAccount')),
@@ -418,7 +419,7 @@ whenReady(function () {
         });
 
         // If the socket disconnects, destroy the worker
-        socket.on("reconnect_failed", () => {
+        socket.on("disconnect", () => {
             console.warn("Socket reconnect_failed; destroying worker.");
             statusText.textContent = "Disconnected";
             statusEmoji.textContent = "❌";
