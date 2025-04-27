@@ -1,18 +1,16 @@
 # TODO
 
 * 稳定性 还需要 加强
+  * o1pro 重试 还是不稳
   * 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
 
 
 ---
 
-
-* 优化first load
-* 一直刷新是不是不好
+* reconnect还要思考一下，现在有not come back但是client显示已连的
 * 网关模式, 动态路由优选
 * 用户注册开通服务keycloak (邀请码注册自动兑换时长)
 * 选车限流聊天记录
-* quality of life
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
 * advanced voice mode
 * Worker disconnect unexpectedly之后，如果已经提交了生成请求，用户会没有这个会话的权限
