@@ -701,7 +701,24 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
 
                 // Send final text response
                 Object.keys(responseHeaders).forEach((key) => {
-                    res.setHeader(key, responseHeaders[key]);
+                    let value = responseHeaders[key];
+                    if(key.toLowerCase().trim()==='link'){
+                        for (let domain of domainsToProxy) {
+                            value = value.replace(
+                                new RegExp(`(https?://)${domain}`, 'g'),
+                                config.centralServer.url
+                            );
+                            value = value.replace(
+                                new RegExp(`(["'])//${domain}`, 'g'),
+                                `$1//${serverUrlWithoutProtocol}`
+                            );
+                            value = value.replace(
+                                new RegExp(`(["'])${domain}`, 'g'),
+                                `$1${serverUrlWithoutProtocol}`
+                            );
+                        }
+                    }
+                    res.setHeader(key, value);
                 });
 
                 res.writeHead(response.status);
