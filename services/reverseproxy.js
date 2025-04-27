@@ -193,9 +193,9 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
         if (!selectedAccount) {
             res.writeHead(401, {'Content-Type': 'application/json'});
             if (accountName) {
-                return res.end(JSON.stringify({error: `No worker available for account ${accountName}, please retry or go to /accountswitcher/v2/ to use another account`}));
+                return res.end(JSON.stringify({error: `No worker available for account ${accountName}, please retry or go to /accountswitcher/ to use another account`}));
             } else {
-                return res.end(JSON.stringify({error: `You haven't chosen an account yet, please go to /accountswitcher/v2/ to choose an account`}));
+                return res.end(JSON.stringify({error: `You haven't chosen an account yet, please go to /accountswitcher/ to choose an account`}));
             }
         }
         delete req.headers['x-account-name'];
