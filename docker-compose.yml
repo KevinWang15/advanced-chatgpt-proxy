@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  keycloak:
+    platform: linux/amd64
+    image: quay.io/keycloak/keycloak:21.1.2
+    container_name: keycloak_service
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin # Default admin user
+      KEYCLOAK_ADMIN_PASSWORD: admin # Default admin password - CHANGE THIS!
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_URL: http://localhost:8080
+      # Memory settings
+      KC_DB: dev-mem
+      # Lower Java memory usage
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:+UseContainerSupport"
+      # KC_PROXY: edge # Uncomment if running behind a reverse proxy
+      # KC_HTTP_RELATIVE_PATH: /auth # If Keycloak runs under a subpath
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data # Persist Keycloak data
+      - ./keycloak-import:/opt/keycloak/data/import # Import directory
+    networks:
+      - app_network
+    restart: unless-stopped # Prevent container from exiting
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+
+  backend:
+    platform: linux/amd64
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend_service
+    depends_on:
+      - keycloak # Wait for Keycloak to be available (basic check)
+    environment:
+      PORT: 3001
+      DATABASE_PATH: /app/database/database.sqlite # Path inside the container
+      KEYCLOAK_REALM: myrealm # Must match Keycloak setup
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080 # Use service name
+      KEYCLOAK_CLIENT_ID: myclient # Must match Keycloak setup
+      KEYCLOAK_CLIENT_SECRET: myclientsecret # Must match Keycloak setup
+      KEYCLOAK_REDIRECT_URI: http://localhost:5173/* # Frontend URL for redirects
+      SESSION_SECRET: change_this_very_secret_key_in_production
+      NODE_ENV: development # Or production
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - backend_db_data:/app/database
+      - /app/node_modules
+    networks:
+      - app_network
+    # Add command if needed, e.g., command: npm start
+
+  frontend:
+    platform: linux/amd64
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile # Need to create this Dockerfile
+    container_name: frontend_service
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:3001/api # URL accessible from user's browser
+      VITE_KEYCLOAK_AUTH_URL: http://localhost:8080 # URL accessible from user's browser
+      VITE_KEYCLOAK_REALM: myrealm # Must match Keycloak setup
+      VITE_KEYCLOAK_CLIENT_ID: myclient # Must match Keycloak setup
+    ports:
+      - "5173:5173" # Default Vite dev port
+    volumes:
+      - ./frontend:/app # Mount frontend code for development (optional for production)
+      - /app/node_modules # Avoid overwriting node_modules with host mount
+    networks:
+      - app_network
+    # Add command if needed, e.g., command: npm run dev
+
+volumes:
+  keycloak_data:
+  backend_db_data:
+
+networks:
+  app_network:
+    driver: bridge
+
