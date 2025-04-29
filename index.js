@@ -149,7 +149,6 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 io.engine.pingTimeout = 60000; // How long to wait for a ping response (ms)
 io.engine.pingInterval = 10000; // How often to ping clients (ms)
 
-const pendingPurges = new Map();
 dynamicNsp.on("connection", (socket) => {
     // Get worker info from handshake query
     const {workerId} = socket.handshake.query;
@@ -185,28 +184,14 @@ dynamicNsp.on("connection", (socket) => {
 
     accounts[account.name] = account;
 
-    //  Cancel a scheduled purge if this worker managed to come back
-    if (pendingPurges.has(workerId)) {
-        clearTimeout(pendingPurges.get(workerId));
-        pendingPurges.delete(workerId);
-        console.log(`Worker ${workerId} re-connected within grace period`);
-    }
-
     //  Normal disconnect handling
     socket.on("disconnect", (reason) => {
         console.log(`Worker ${workerId} disconnected (${reason})`);
-
-        const timer = setTimeout(() => {
-            console.log(`Worker ${workerId} disconnected and didn't come back within grace period. Cleaning up.`);
-            if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
-                workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
-                workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
-            }
-            purgeWorker(workerId);
-            pendingPurges.delete(workerId);
-        }, 10000); //TODO
-
-        pendingPurges.set(workerId, timer);
+        if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
+            workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
+            workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
+        }
+        purgeWorker(workerId);
     });
 
     socket.on("network", (data) => {
