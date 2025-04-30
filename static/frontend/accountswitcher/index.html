@@ -38,6 +38,7 @@
             width: 100%;
             max-width: 480px;
             overflow: hidden;
+            position: relative;
         }
 
         .header {
@@ -218,6 +219,43 @@
         .loading {
             animation: pulse 1.5s infinite ease-in-out;
         }
+
+        /* Toast notifications */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            font-size: 0.9rem;
+            min-width: 250px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .toast.success {
+            background-color: #10a37f;
+        }
+
+        .toast.error {
+            background-color: #e74c3c;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .countdown {
+            display: inline-block;
+            margin-left: 5px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -232,6 +270,8 @@
         <p>Use this tool to switch between your OpenAI accounts</p>
     </div>
 </div>
+
+<div id="toast" class="toast"></div>
 
 <script>
     // Helper function to get cookie value
@@ -250,6 +290,66 @@
         isLoading: true,
         error: null
     };
+
+    // Toast notification helper functions
+    function showToast(message, type = '', duration = 3000) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast show';
+
+        if (type) {
+            toast.classList.add(type);
+        }
+
+        setTimeout(() => {
+            hideToast();
+        }, duration);
+
+        return toast;
+    }
+
+    function hideToast() {
+        const toast = document.getElementById('toast');
+        toast.classList.remove('show');
+    }
+
+    function showCountdownToast(message, seconds, type = '', callback) {
+        const toast = document.getElementById('toast');
+
+        // Create the base message element
+        const messageSpan = document.createElement('span');
+        messageSpan.innerHTML = message;
+
+        // Create the countdown element
+        const countdownSpan = document.createElement('span');
+        countdownSpan.className = 'countdown';
+        countdownSpan.textContent = seconds + " seconds";
+
+        // Clear the toast and add the new elements
+        toast.innerHTML = '';
+        toast.appendChild(messageSpan);
+        toast.appendChild(countdownSpan);
+
+        toast.className = 'toast show';
+        if (type) {
+            toast.classList.add(type);
+        }
+
+        // Update the countdown every second
+        let remainingSeconds = seconds;
+        const interval = setInterval(() => {
+            remainingSeconds--;
+            countdownSpan.textContent = remainingSeconds + " seconds";
+
+            if (remainingSeconds <= 0) {
+                clearInterval(interval);
+                hideToast();
+                if (callback && typeof callback === 'function') {
+                    callback();
+                }
+            }
+        }, 1000);
+    }
 
     // Parse the degradation metrics text
     function parseMetrics(metricsText) {
@@ -273,6 +373,18 @@
         });
 
         return degradationData;
+    }
+
+    // Check if the current account from cookie exists in account list
+    function checkCurrentAccountExists() {
+        if (!state.currentAccount) return;
+
+        const accountExists = state.accounts.some(account => account.name === state.currentAccount);
+
+        if (!accountExists) {
+            showToast(`Account "${state.currentAccount}" is unavailable. Please select another account.`, 'error', 5000);
+            state.currentAccount = ''; // Reset current account
+        }
     }
 
     // Render the account list
@@ -380,14 +492,19 @@
                 // Update the UI
                 renderAccounts();
 
-                // clear cache which is used to store the conversation list
+                // Clear cache which is used to store the conversation list
                 localStorage.clear();
+
+                // Show countdown toast and redirect
+                showCountdownToast(`Account "${accountName}" selected.<br/>Navigating back in`, 3, 'success', () => {
+                    window.location.href = '/';
+                });
             } else {
                 throw new Error(`Failed to switch account. Status: ${response.status}`);
             }
         } catch (error) {
             console.error('Error switching account:', error);
-            alert(`Error switching to account ${accountName}: ${error.message}`);
+            showToast(`Error switching to account ${accountName}: ${error.message}`, 'error');
         }
     }
 
@@ -419,6 +536,10 @@
 
             // Success! Update the UI
             state.isLoading = false;
+
+            // Check if current account exists in the account list
+            checkCurrentAccountExists();
+
             renderAccounts();
 
         } catch (error) {
