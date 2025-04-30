@@ -154,8 +154,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                     httpOnly: false,
                     sameSite: 'lax'
                 });
-                res.writeHead(302, {'Location': '/'});
-                return res.end();
+                return res.redirect('/');
             }
             const passcode = req.query.passcode;
             if (passcode !== config.centralServer.auth.passcode) {
@@ -170,11 +169,13 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             await saveToken(token);
 
             // Set cookie
-            res.setHeader('Set-Cookie', `access_token=${token}; Max-Age=${cookieMaxAge}; HttpOnly; SameSite=Lax`);
-
+            res.cookie('access_token', req.query.token, {
+                maxAge: 1000 * 24 * 60 * 60 * 1000,
+                httpOnly: false,
+                sameSite: 'lax'
+            });
             // Redirect to home
-            res.writeHead(302, {'Location': '/'});
-            res.end();
+            return res.redirect('/');
         } catch (error) {
             console.error('Error creating new user:', error);
             res.writeHead(500, {'Content-Type': 'application/json'});
