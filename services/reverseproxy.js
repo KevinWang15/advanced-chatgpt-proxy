@@ -145,12 +145,12 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
             if (req.query.token) {
                 res.cookie('access_token', req.query.token, {
-                    maxAge: 1000 * 24 * 60 * 60 * 1000,
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
                     httpOnly: false,
                     sameSite: 'lax'
                 });
                 res.cookie('account_name', req.query.account, {
-                    maxAge: 1000 * 24 * 60 * 60 * 1000,
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
                     httpOnly: false,
                     sameSite: 'lax'
                 });
@@ -170,7 +170,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
             // Set cookie
             res.cookie('access_token', req.query.token, {
-                maxAge: 1000 * 24 * 60 * 60 * 1000,
+                maxAge: 30 * 24 * 60 * 60 * 1000,
                 httpOnly: false,
                 sameSite: 'lax'
             });
@@ -231,7 +231,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
     app.get('/switch-account/:name', (req, res) => {
         const accountName = req.params.name;
         res.cookie('account_name', accountName, {
-            maxAge: 1000 * 24 * 60 * 60 * 1000,
+            maxAge: 30 * 24 * 60 * 60 * 1000,
             httpOnly: false,
             sameSite: 'lax'
         });
