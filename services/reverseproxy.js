@@ -130,6 +130,22 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
     });
     app.get('/start', async (req, res) => {
         try {
+            if (req.query.token) {
+                res.cookie('access_token', req.query.token, {
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax',
+                    path: '/'
+                });
+                res.cookie('account_name', req.query.account, {
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax',
+                    path: '/'
+                });
+                return res.redirect('/');
+            }
+
             // Check if user is already authenticated
             let isValidToken = false;
             try {
@@ -139,25 +155,9 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             }
 
             if (isValidToken) {
-                res.writeHead(302, {'Location': '/'});
-                return res.end();
-            }
-
-            if (req.query.token) {
-                res.cookie('access_token', req.query.token, {
-                    maxAge: 30 * 24 * 60 * 60 * 1000,
-                    httpOnly: false,
-                    sameSite: 'lax',
-                    overwrite: true
-                });
-                res.cookie('account_name', req.query.account, {
-                    maxAge: 30 * 24 * 60 * 60 * 1000,
-                    httpOnly: false,
-                    sameSite: 'lax',
-                    overwrite: true
-                });
                 return res.redirect('/');
             }
+
             const passcode = req.query.passcode;
             if (passcode !== config.centralServer.auth.passcode) {
                 res.writeHead(401, {'Content-Type': 'application/json'});
@@ -175,7 +175,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 maxAge: 30 * 24 * 60 * 60 * 1000,
                 httpOnly: false,
                 sameSite: 'lax',
-                overwrite: true
+                path: '/'
             });
             // Redirect to home
             return res.redirect('/');
@@ -237,7 +237,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             maxAge: 30 * 24 * 60 * 60 * 1000,
             httpOnly: false,
             sameSite: 'lax',
-            overwrite: true
+            path: '/'
         });
 
         const accounts = getAllAccounts();
