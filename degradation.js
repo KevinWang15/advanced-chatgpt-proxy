@@ -115,6 +115,8 @@ async function handleMetrics(req, res) {
 # TYPE chatgpt_degradation gauge
 # HELP chatgpt_last_check_timestamp The timestamp of the last successful check
 # TYPE chatgpt_last_check_timestamp gauge
+# HELP chatgpt_load The current load of the account (0-100)
+# TYPE chatgpt_load gauge
 `.trimStart();
 
     // Get all accounts that have workers connected
@@ -137,11 +139,16 @@ async function handleMetrics(req, res) {
                 .map(([k, v]) => `${k}="${v}"`)
                 .join(',');
 
+            // Get the load value from reverseproxy.js
+            const { calculateAccountLoad } = require('./services/reverseproxy');
+            const load = calculateAccountLoad(account.name);
+            
             // Add each metric line with the appropriate labels
             metricsOutput += `
 chatgpt_knowledge_cutoff_date{${labelString}} ${lastDegradationResult.knowledgeCutoffTimestamp}
 chatgpt_degradation{${labelString}} ${lastDegradationResult.degradation}
 chatgpt_last_check_timestamp{${labelString}} ${Math.floor(lastCheckTime / 1000)}
+chatgpt_load{${labelString}} ${load}
 `;
         }
     }
