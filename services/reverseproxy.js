@@ -246,8 +246,17 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
     app.get('/accounts', (req, res) => {
         const {getAllAccounts} = require('../state/state');
+        const {accountStatusMap} = require('../degradation');
         const accounts = getAllAccounts();
-        res.send(accounts.map(x => ({name: x.name, labels: x.labels || {}})));
+        res.send(accounts.map(x => {
+            const accountState = accountStatusMap[x.name];
+            const degradation = accountState?.lastDegradationResult?.degradation ?? 0;
+            return {
+                name: x.name, 
+                labels: x.labels || {},
+                degradation: degradation // 0 is no degradation, 1 is slightly degraded, 2 is severely degraded
+            };
+        }));
     });
 
     /**
