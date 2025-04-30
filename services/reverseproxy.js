@@ -250,10 +250,10 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
         const accounts = getAllAccounts();
         res.send(accounts.map(x => {
             const accountState = accountStatusMap[x.name];
-            const degradation = accountState?.lastDegradationResult?.degradation;
+            const degradation = accountState?.lastDegradationResult ? accountState?.lastDegradationResult.degradation : null;
             const load = calculateAccountLoad(x.name);
             return {
-                name: x.name, 
+                name: x.name,
                 labels: x.labels || {},
                 degradation: degradation, // 0 is no degradation, 1 is slightly degraded, 2 is severely degraded
                 load: load // 0 to 100, based on usage in the past 3 hours
@@ -478,7 +478,7 @@ const timeBasedUsageCounters = {};
 function incrementUsage(accountName, model) {
     const key = `${accountName}||${model}`;
     usageCounters[key] = (usageCounters[key] || 0) + 1;
-    
+
     // Also track time-based usage for load calculation
     const timestamp = Math.floor(Date.now() / (5 * 60 * 1000)) * (5 * 60 * 1000); // Round to 5-minute buckets
     if (!timeBasedUsageCounters[accountName]) {
@@ -496,10 +496,10 @@ function calculateAccountLoad(accountName) {
     if (!timeBasedUsageCounters[accountName]) {
         return 0;
     }
-    
+
     const now = Date.now();
     const threeHoursAgo = now - (3 * 60 * 60 * 1000);
-    
+
     // Sum up all usage in the past 3 hours
     let recentUsage = 0;
     for (const [timestamp, count] of Object.entries(timeBasedUsageCounters[accountName])) {
@@ -507,14 +507,14 @@ function calculateAccountLoad(accountName) {
             recentUsage += count;
         }
     }
-    
+
     // Clean up old entries (older than 3 hours)
     Object.keys(timeBasedUsageCounters[accountName]).forEach(timestamp => {
         if (parseInt(timestamp) < threeHoursAgo) {
             delete timeBasedUsageCounters[accountName][timestamp];
         }
     });
-    
+
     // Use arctan function to map usage to a 0-100 scale
     // arctan(x/50) * (2/π) * 100 gives a nice curve that reaches ~50 at x=50 and approaches 100 asymptotically
     const load = Math.round(Math.atan(recentUsage / 50) * (2 / Math.PI) * 100);
