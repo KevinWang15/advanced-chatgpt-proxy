@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const cors = require('cors');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
@@ -25,7 +26,13 @@ const {
     saveToken,
     checkConversationAccess,
     listUserConversations,
-    addConversationAccess, getInternalAuthenticationToken, addGizmoAccess, listUserGizmos
+    addConversationAccess,
+    getInternalAuthenticationToken,
+    addGizmoAccess,
+    listUserGizmos,
+    verifyIntegrationApiKey,
+    getTokenInfo,
+    callWebhook
 } = require('./auth');
 
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require('../consts');
@@ -53,6 +60,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
     // Use cookie parser globally
     app.use(cookieParser());
+    app.use(cors());
 
     app.get('/metrics', async (req, res) => {
         return await handleMetrics(req, res, {doWork});
@@ -135,6 +143,20 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 return res.end();
             }
 
+            if (req.query.token) {
+                res.cookie('access_token', req.query.token, {
+                    maxAge: 1000 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax'
+                });
+                res.cookie('account_name', req.query.account, {
+                    maxAge: 1000 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax'
+                });
+                res.writeHead(302, {'Location': '/'});
+                return res.end();
+            }
             const passcode = req.query.passcode;
             if (passcode !== config.centralServer.auth.passcode) {
                 res.writeHead(401, {'Content-Type': 'application/json'});
@@ -157,6 +179,50 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             console.error('Error creating new user:', error);
             res.writeHead(500, {'Content-Type': 'application/json'});
             res.end(JSON.stringify({error: 'Internal server error'}));
+        }
+    });
+
+    app.post('/create-managed-user', async (req, res) => {
+        try {
+            // Check authorization using the integration API key
+            const apiKey = req.headers['x-api-key'];
+            if (!verifyIntegrationApiKey(apiKey)) {
+                res.status(401).json({error: 'Invalid API key'});
+                return;
+            }
+
+            // Get JSON body
+            const chunks = [];
+            for await (const chunk of req) {
+                chunks.push(chunk);
+            }
+
+            let body = {};
+            try {
+                if (chunks.length > 0) {
+                    body = JSON.parse(Buffer.concat(chunks).toString());
+                }
+            } catch (e) {
+                res.status(400).json({error: 'Invalid JSON body'});
+                return;
+            }
+
+            // Extract webhook URL if provided
+            const webhookUrl = body.webhook_url || null;
+
+            // Generate a new token
+            const token = generateToken();
+
+            // Save token to database as managed user
+            await saveToken(token, webhookUrl, 1);
+
+            // Return the token
+            res.status(201).json({
+                token,
+            });
+        } catch (error) {
+            logger.error('Error creating managed user:', error);
+            res.status(500).json({error: 'Internal server error'});
         }
     });
 
@@ -697,7 +763,7 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                 // Send final text response
                 Object.keys(responseHeaders).forEach((key) => {
                     let value = responseHeaders[key];
-                    if(key.toLowerCase().trim()==='link'){
+                    if (key.toLowerCase().trim() === 'link') {
                         for (let domain of domainsToProxy) {
                             value = value.replace(
                                 new RegExp(`(https?://)${domain}`, 'g'),
@@ -800,6 +866,24 @@ function handleConversation(req, res, {doWork, selectedAccount}) {
                         error: 'Invalid request, please copy your prompt, refresh the page, and send again'
                     })
                 );
+            }
+
+            // Check with webhook for managed users
+            const token = req.cookies?.access_token;
+            if (token) {
+                const webhookResult = await callWebhook(token, 'conversation_start', {
+                    action: task.action,
+                    model: model,
+                    question: userMessage,
+                    conversation_id: conversationId || null
+                });
+
+                if (!webhookResult.allowed) {
+                    res.writeHead(403, {'Content-Type': 'application/json'});
+                    return res.end(JSON.stringify({
+                        error: webhookResult.reason || "unspecified reason",
+                    }));
+                }
             }
 
             logger.info('assigning conversation task to worker', userMessage);

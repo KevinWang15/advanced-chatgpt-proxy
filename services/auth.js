@@ -2,11 +2,19 @@ const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 const path = require('path');
 const {v4: uuidv4} = require('uuid');
+const axios = require('axios');
+const config = require(path.join(__dirname, "..", process.env.CONFIG || "config.centralserver.js"));
 
 const internalAuthenticationToken = uuidv4();
 
 function getInternalAuthenticationToken() {
     return internalAuthenticationToken;
+}
+
+function verifyIntegrationApiKey(apiKey) {
+    // Get the integration API key from config
+    const configApiKey = config.centralServer.auth.integrationApiKey;
+    return apiKey === configApiKey && !!configApiKey;
 }
 
 // Initialize database
@@ -27,7 +35,12 @@ const db = new sqlite3.Database(dbPath, (err) => {
                     created_at
                     INTEGER
                     NOT
-                    NULL
+                    NULL,
+                    webhook_url
+                    TEXT,
+                    is_managed
+                    INTEGER
+                    DEFAULT 0
                 )`, (err) => {
             if (err) {
                 console.error('Error creating tokens table:', err.message);
@@ -124,10 +137,10 @@ function generateToken() {
 }
 
 // Save a token to the database
-function saveToken(token) {
+function saveToken(token, webhookUrl = null, isManaged = 0) {
     return new Promise((resolve, reject) => {
-        const stmt = db.prepare('INSERT INTO tokens (token, created_at) VALUES (?, ?)');
-        stmt.run(token, Date.now(), function (err) {
+        const stmt = db.prepare('INSERT INTO tokens (token, created_at, webhook_url, is_managed) VALUES (?, ?, ?, ?)');
+        stmt.run(token, Date.now(), webhookUrl, isManaged, function (err) {
             if (err) {
                 reject(err);
             } else {
@@ -154,6 +167,70 @@ function verifyToken(token) {
             }
         });
     });
+}
+
+// Get token information including webhook URL
+function getTokenInfo(token) {
+    return new Promise((resolve, reject) => {
+        if (!token) {
+            resolve(null);
+            return;
+        }
+
+        db.get('SELECT token, webhook_url, is_managed, created_at FROM tokens WHERE token = ?', [token], (err, row) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(row || null);
+            }
+        });
+    });
+}
+
+/**
+ * Call the webhook URL for a managed user
+ * @param {string} token - The token of the managed user
+ * @param {string} operation - The operation being performed (e.g., 'conversation_start', 'conversation_access')
+ * @param {object} data - Data related to the operation
+ * @returns {Promise<{allowed: boolean, reason?: string}>} - Whether the operation is allowed and optional reason
+ */
+async function callWebhook(token, operation, data) {
+    try {
+        const tokenInfo = await getTokenInfo(token);
+        
+        // If not a managed user or no webhook URL, default to allowed
+        if (!tokenInfo || !tokenInfo.is_managed || !tokenInfo.webhook_url) {
+            return { allowed: true };
+        }
+        
+        // Call the webhook URL
+        const response = await axios.post(tokenInfo.webhook_url, {
+            token: token,
+            operation: operation,
+            timestamp: Date.now(),
+            data: data
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            timeout: 5000 // 5 second timeout
+        });
+        
+        // Check if the operation is allowed
+        if (response.data && typeof response.data.allowed === 'boolean') {
+            return {
+                allowed: response.data.allowed,
+                reason: response.data.reason || null
+            };
+        }
+        
+        // Default to allowed if the response doesn't include an 'allowed' field
+        return { allowed: true };
+    } catch (error) {
+        console.error(`Error calling webhook for token ${token.substring(0, 8)}...: ${error.message}`);
+        // Default to allowed if the webhook call fails
+        return { allowed: false, reason: 'Webhook call failed' };
+    }
 }
 
 // Conversation Access Functions
@@ -391,6 +468,9 @@ module.exports = {
     generateToken,
     saveToken,
     verifyToken,
+    getTokenInfo,
+    verifyIntegrationApiKey,
+    callWebhook,
 
     // Conversation access functions
     checkConversationAccess,
