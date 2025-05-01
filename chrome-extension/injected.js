@@ -115,7 +115,7 @@ if (isChatGPT()) {
                                 }
                                 setTimeout(() => {
                                     destroy();
-                                });
+                                }, 5000);
                             }
 
                         } catch (error) {
