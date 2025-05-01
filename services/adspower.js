@@ -1,6 +1,20 @@
 // AdsPower API Client
 const axios = require('axios');
 
+function getUaSystemVersionByRealOS() {
+    const platform = os.platform();
+
+    if (platform === 'win32') {
+        return 'Windows 10';
+    } else if (platform === 'darwin') {
+        return 'Mac OS X 13';
+    } else if (platform === 'linux') {
+        return 'Linux';
+    } else {
+        return `Linux`;
+    }
+}
+
 class AdsPowerClient {
     constructor(options = {}) {
         this.baseUrl = options.baseUrl || 'http://localhost:50325';
@@ -17,7 +31,10 @@ class AdsPowerClient {
                 user_proxy_config: profileOptions.proxyConfig || null,
                 fingerprint_config: {
                     language: ["en-US", "en"],
-                    random_ua: {"ua_browser": ["chrome"]},
+                    random_ua: {
+                        ua_browser: ["chrome"],
+                        ua_system_version:[getUaSystemVersionByRealOS()]
+                    },
                     ...profileOptions.fingerprintConfig
                 }
             });
