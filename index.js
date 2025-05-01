@@ -186,10 +186,13 @@ dynamicNsp.on("connection", (socket) => {
     //  Normal disconnect handling
     socket.on("disconnect", (reason) => {
         console.log(`Worker ${workerId} disconnected (${reason})`);
-        if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
-            workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
-            workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
-        }
+        setTimeout(() => {
+            if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
+                workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
+                workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
+            }
+            // there might be race condition, if disconnect arrives before the "network"
+        }, 5000);
         purgeWorker(workerId);
     });
 
