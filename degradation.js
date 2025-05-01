@@ -61,43 +61,18 @@ setInterval(() => {
  */
 async function performDegradationCheckForAccount(account) {
     const accountState = accountStatusMap[account.name];
+    try {
+        console.log(`Performing degradation check for ${account.name} (attempt ${retries + 1})`);
 
-    // Prevent multiple concurrent checks for this account
-    if (accountState.checkInProgress) return;
+        // Update the account’s result and timestamp
+        accountState.lastDegradationResult = await checkDegradation(account);
+        accountState.lastCheckTime = Date.now();
 
-    accountState.checkInProgress = true;
-    let retries = 0;
-    const maxRetries = 3;
-
-    while (retries <= maxRetries) {
-        try {
-            console.log(`Performing degradation check for ${account.name} (attempt ${retries + 1})`);
-            const result = await checkDegradation(account);
-
-            // Update the account’s result and timestamp
-            accountState.lastDegradationResult = result;
-            accountState.lastCheckTime = Date.now();
-
-            console.log(`Degradation check successful for ${account.name}`);
-            accountState.checkInProgress = false;
-            return;
-        } catch (error) {
-            retries++;
-            console.error(`Degradation check failed for ${account.name} (attempt ${retries}):`, error);
-
-            if (retries <= maxRetries) {
-                console.log(`Retrying for ${account.name} in 1 minute...`);
-                // Wait for 1 minute before retrying
-                await new Promise(resolve => setTimeout(resolve, 60000));
-            } else {
-                console.error(`All retry attempts failed for ${account.name}`);
-                // If all retries fail, set result to null to indicate "no data"
-                accountState.lastDegradationResult = null;
-                accountState.lastCheckTime = Date.now();
-                accountState.checkInProgress = false;
-                return;
-            }
-        }
+        console.log(`Degradation check successful for ${account.name}`);
+    } catch (error) {
+        console.error(`Degradation check failed for ${account.name} (attempt ${retries}):`, error);
+        accountState.lastDegradationResult = null;
+        accountState.lastCheckTime = Date.now();
     }
 }
 
@@ -140,9 +115,9 @@ async function handleMetrics(req, res) {
                 .join(',');
 
             // Get the load value from reverseproxy.js
-            const { calculateAccountLoad } = require('./services/reverseproxy');
+            const {calculateAccountLoad} = require('./services/reverseproxy');
             const load = calculateAccountLoad(account.name);
-            
+
             // Add each metric line with the appropriate labels
             metricsOutput += `
 chatgpt_knowledge_cutoff_date{${labelString}} ${lastDegradationResult.knowledgeCutoffTimestamp}
@@ -195,182 +170,179 @@ function initializeCleanupJob() {
  * and returns the parsed results.
  */
 async function checkDegradation(account) {
-    try {
-        // Insert your internal token retrieval logic here
-        const token = getInternalAuthenticationToken();
+    // Insert your internal token retrieval logic here
+    const token = getInternalAuthenticationToken();
 
-        const response = await axios({
-            method: 'POST',
-            url: 'http://127.0.0.1:' + config.centralServer.port + '/backend-api/conversation',
-            headers: {
-                'accept': 'text/event-stream',
-                'content-type': 'application/json',
-                'x-internal-authentication': token,
-                'x-account-name': account.name
-            },
-            data: {
-                action: 'next',
-                messages: [{
-                    id: uuidv4(),
-                    author: {role: 'user'},
-                    create_time: (+new Date()) / 1000,
-                    content: {
-                        content_type: 'text',
-                        parts: ['what is your knowledge cutoff date, only reply "yyyy-MM"']
-                    },
-                    metadata: {
-                        selected_github_repos: [],
-                        serialization_metadata: {custom_symbol_offsets: []},
-                        dictation: false
-                    }
-                }],
-                parent_message_id: 'client-created-root',
-                model: 'gpt-4o',
-                timezone_offset_min: -480,
-                timezone: 'Asia/Shanghai',
-                conversation_mode: {kind: 'primary_assistant'},
-                enable_message_followups: true,
-                system_hints: [],
-                supports_buffering: true,
-                supported_encodings: ['v1'],
-                client_contextual_info: {
-                    is_dark_mode: true,
-                    time_since_loaded: 3,
-                    page_height: 992,
-                    page_width: 952,
-                    pixel_ratio: 2,
-                    screen_height: 1117,
-                    screen_width: 1728
+    const response = await axios({
+        method: 'POST',
+        url: 'http://127.0.0.1:' + config.centralServer.port + '/backend-api/conversation',
+        headers: {
+            'accept': 'text/event-stream',
+            'content-type': 'application/json',
+            'x-internal-authentication': token,
+            'x-account-name': account.name
+        },
+        data: {
+            action: 'next',
+            messages: [{
+                id: uuidv4(),
+                author: {role: 'user'},
+                create_time: (+new Date()) / 1000,
+                content: {
+                    content_type: 'text',
+                    parts: ['what is your knowledge cutoff date, only reply "yyyy-MM"']
                 },
-                paragen_cot_summary_display_override: 'allow',
-                path_to_message: [],
-                delete_conversation_immediately_afterwards: true,
-                theAccessToken: account.accessToken,
+                metadata: {
+                    selected_github_repos: [],
+                    serialization_metadata: {custom_symbol_offsets: []},
+                    dictation: false
+                }
+            }],
+            parent_message_id: 'client-created-root',
+            model: 'gpt-4o',
+            timezone_offset_min: -480,
+            timezone: 'Asia/Shanghai',
+            conversation_mode: {kind: 'primary_assistant'},
+            enable_message_followups: true,
+            system_hints: [],
+            supports_buffering: true,
+            supported_encodings: ['v1'],
+            client_contextual_info: {
+                is_dark_mode: true,
+                time_since_loaded: 3,
+                page_height: 992,
+                page_width: 952,
+                pixel_ratio: 2,
+                screen_height: 1117,
+                screen_width: 1728
             },
-            responseType: 'stream',
-            timeout: 10000 // Overall request timeout
-        });
+            paragen_cot_summary_display_override: 'allow',
+            path_to_message: [],
+            delete_conversation_immediately_afterwards: true,
+            theAccessToken: account.accessToken,
+        },
+        responseType: 'stream',
+        timeout: 10000 // Overall request timeout
+    });
 
-        const result = await new Promise((resolve, reject) => {
-            let fullContent = '';
-            let buffer = '';
-            let conversationId = '';
+    const result = await new Promise((resolve, reject) => {
+        let fullContent = '';
+        let buffer = '';
+        let conversationId = '';
 
-            // Set a timeout for stream processing
-            const streamTimeout = setTimeout(() => {
-                reject(new Error('Stream processing timeout'));
-            }, 9000);
+        // Set a timeout for stream processing
+        const streamTimeout = setTimeout(() => {
+            reject(new Error('Stream processing timeout'));
+        }, 9000);
 
-            response.data.on('data', (chunk) => {
-                const chunkString = chunk.toString();
-                buffer += chunkString;
+        response.data.on('data', (chunk) => {
+            const chunkString = chunk.toString();
+            buffer += chunkString;
 
-                // Process complete events in the buffer
-                const lines = buffer.split('\n');
-                buffer = lines.pop(); // Keep the last incomplete line in the buffer
+            // Process complete events in the buffer
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep the last incomplete line in the buffer
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.substring(6); // Remove 'data: ' prefix
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.substring(6); // Remove 'data: ' prefix
 
-                        if (data === '[DONE]') {
-                            // Stream is complete
-                            clearTimeout(streamTimeout);
-                            resolve({content: fullContent, conversationId});
-                            continue;
+                    if (data === '[DONE]') {
+                        // Stream is complete
+                        clearTimeout(streamTimeout);
+                        resolve({content: fullContent, conversationId});
+                        continue;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(data);
+
+                        // Extract conversation_id if available
+                        if (parsed.conversation_id) {
+                            conversationId = parsed.conversation_id;
+                        } else if (parsed.v && parsed.v.conversation_id) {
+                            conversationId = parsed.v.conversation_id;
                         }
 
-                        try {
-                            const parsed = JSON.parse(data);
-
-                            // Extract conversation_id if available
-                            if (parsed.conversation_id) {
-                                conversationId = parsed.conversation_id;
-                            } else if (parsed.v && parsed.v.conversation_id) {
-                                conversationId = parsed.v.conversation_id;
+                        // Handle different message types
+                        if (parsed.type === 'message_stream_complete') {
+                            // Stream complete
+                        } else if (parsed.v && parsed.v.message) {
+                            // Initial message
+                            if (parsed.v.message.content && parsed.v.message.content.parts) {
+                                fullContent = parsed.v.message.content.parts[0] || '';
                             }
-
-                            // Handle different message types
-                            if (parsed.type === 'message_stream_complete') {
-                                // Stream complete
-                            } else if (parsed.v && parsed.v.message) {
-                                // Initial message
-                                if (parsed.v.message.content && parsed.v.message.content.parts) {
-                                    fullContent = parsed.v.message.content.parts[0] || '';
-                                }
-                            } else if (parsed.o === 'append' && parsed.p === '/message/content/parts/0') {
-                                // Direct append to content
-                                fullContent += parsed.v;
-                            } else if (parsed.o === 'patch' && Array.isArray(parsed.v)) {
-                                // Handle nested patches
-                                for (const patch of parsed.v) {
-                                    if (patch.p === '/message/content/parts/0' && patch.o === 'append') {
-                                        fullContent += patch.v;
-                                    }
-                                }
-                            } else if (Array.isArray(parsed.v)) {
-                                // Handle array of patches directly
-                                for (const patch of parsed.v) {
-                                    if (patch.p === '/message/content/parts/0' && patch.o === 'append') {
-                                        fullContent += patch.v;
-                                    }
+                        } else if (parsed.o === 'append' && parsed.p === '/message/content/parts/0') {
+                            // Direct append to content
+                            fullContent += parsed.v;
+                        } else if (parsed.o === 'patch' && Array.isArray(parsed.v)) {
+                            // Handle nested patches
+                            for (const patch of parsed.v) {
+                                if (patch.p === '/message/content/parts/0' && patch.o === 'append') {
+                                    fullContent += patch.v;
                                 }
                             }
-                        } catch (err) {
-                            console.warn('Error parsing JSON:', err, data);
+                        } else if (Array.isArray(parsed.v)) {
+                            // Handle array of patches directly
+                            for (const patch of parsed.v) {
+                                if (patch.p === '/message/content/parts/0' && patch.o === 'append') {
+                                    fullContent += patch.v;
+                                }
+                            }
                         }
+                    } catch (err) {
+                        console.warn('Error parsing JSON:', err, data);
                     }
                 }
-            });
-
-            response.data.on('end', () => {
-                clearTimeout(streamTimeout);
-                console.log('Stream complete');
-                resolve({content: fullContent, conversationId});
-            });
-
-            response.data.on('error', (err) => {
-                clearTimeout(streamTimeout);
-                reject(err);
-            });
+            }
         });
 
-        // Parse the YYYY-MM date string
-        const knowledgeCutoffDateInYyyyMm = result.content.trim();
+        response.data.on('end', () => {
+            clearTimeout(streamTimeout);
+            console.log('Stream complete');
+            resolve({content: fullContent, conversationId});
+        });
 
-        // Convert to timestamp for Prometheus (assumes the first day of the month)
-        const [year, month] = knowledgeCutoffDateInYyyyMm.split('-').map(Number);
-        const knowledgeCutoffTimestamp = Date.UTC(year, month - 1, 1);
+        response.data.on('error', (err) => {
+            clearTimeout(streamTimeout);
+            reject(err);
+        });
+    });
 
-        // Calculate degradation level
-        let degradation = 0;
-        if (knowledgeCutoffTimestamp >= 1717113600000) {
-            // May 2024 timestamp
-            degradation = 0;
-        } else if (knowledgeCutoffTimestamp >= 1640822400000) {
-            // January 2022 timestamp
-            degradation = 1;
-        } else {
-            degradation = 2;
-        }
+    // Parse the YYYY-MM date string
+    const knowledgeCutoffDateInYyyyMm = result.content.trim();
 
-        console.log(
-            "Knowledge cutoff date:", knowledgeCutoffDateInYyyyMm,
-            "Degradation level:", degradation,
-            "Conversation ID:", result.conversationId,
-            "Account:", account.name
-        );
+    // Convert to timestamp for Prometheus (assumes the first day of the month)
+    const [year, month] = knowledgeCutoffDateInYyyyMm.split('-').map(Number);
+    const knowledgeCutoffTimestamp = Date.UTC(year, month - 1, 1);
 
-        return {
-            knowledgeCutoffDateString: knowledgeCutoffDateInYyyyMm,
-            knowledgeCutoffTimestamp: Math.floor(knowledgeCutoffTimestamp / 1000), // Convert to seconds
-            degradation,
-            conversationId: result.conversationId
-        };
-    } catch (error) {
-        console.error('Error checking degradation for account:', account.name, error);
-        throw error;
+    // Calculate degradation level
+    let degradation = 0;
+    if (knowledgeCutoffTimestamp >= 1717113600000) {
+        // May 2024 timestamp
+        degradation = 0;
+    } else if (knowledgeCutoffTimestamp >= 1640822400000) {
+        // January 2022 timestamp
+        degradation = 1;
+    } else if (knowledgeCutoffTimestamp >= 1609459200000) {
+        degradation = 2;
+    } else {
+        throw new Error(`failed to parse knowledge cutoff date ${knowledgeCutoffDateInYyyyMm}`);
     }
+
+    console.log(
+        "Knowledge cutoff date:", knowledgeCutoffDateInYyyyMm,
+        "Degradation level:", degradation,
+        "Conversation ID:", result.conversationId,
+        "Account:", account.name
+    );
+
+    return {
+        knowledgeCutoffDateString: knowledgeCutoffDateInYyyyMm,
+        knowledgeCutoffTimestamp: Math.floor(knowledgeCutoffTimestamp / 1000), // Convert to seconds
+        degradation,
+        conversationId: result.conversationId
+    };
 }
 
 module.exports = {accountStatusMap, handleMetrics, performDegradationCheckForAccount}

@@ -50,8 +50,6 @@ const mimeTypes = {
     '.gif': 'image/gif',
 };
 
-const cookieMaxAge = 100 * 365 * 24 * 60 * 60 * 1000;
-
 function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAccount}) {
     const app = express();
 
@@ -109,9 +107,9 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 setTimeout(async () => {
                     try {
                         await performDegradationCheckForAccount(account);
-                        console.log(`Manually triggered degradation check completed for ${account.name}`);
+                        console.log(`degradation check completed for ${account.name}`);
                     } catch (error) {
-                        console.error(`Manually triggered degradation check failed for ${account.name}:`, error);
+                        console.error(`degradation check failed for ${account.name}:`, error);
                     }
                 }, delayMs);
             }

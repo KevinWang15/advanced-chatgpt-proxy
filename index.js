@@ -159,7 +159,6 @@ dynamicNsp.on("connection", (socket) => {
         accountStatusMap[account.name] = {
             lastDegradationResult: null,
             lastCheckTime: null,
-            checkInProgress: false
         };
     }
 
