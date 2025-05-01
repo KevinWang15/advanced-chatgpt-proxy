@@ -62,7 +62,7 @@ setInterval(() => {
 async function performDegradationCheckForAccount(account) {
     const accountState = accountStatusMap[account.name];
     try {
-        console.log(`Performing degradation check for ${account.name} (attempt ${retries + 1})`);
+        console.log(`Performing degradation check for ${account.name}`);
 
         // Update the account’s result and timestamp
         accountState.lastDegradationResult = await checkDegradation(account);
