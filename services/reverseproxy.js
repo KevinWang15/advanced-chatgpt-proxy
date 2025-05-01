@@ -171,7 +171,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             await saveToken(token);
 
             // Set cookie
-            res.cookie('access_token', req.query.token, {
+            res.cookie('access_token', token, {
                 maxAge: 30 * 24 * 60 * 60 * 1000,
                 httpOnly: false,
                 sameSite: 'lax',

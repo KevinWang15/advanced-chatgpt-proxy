@@ -35,7 +35,7 @@ async function saveToken(token, webhookUrl = null, isManaged = 0) {
         });
         return result.token;
     } catch (error) {
-        throw error;
+        console.error(`Error saving token: ${error.message}`);
     }
 }
 
@@ -199,7 +199,7 @@ async function addConversationAccess(conversationId, token, accessType = 'owner'
 
         return true;
     } catch (error) {
-        throw error;
+        console.error(`Error upserting conversation access to ${token}: ${error.message}`);
     }
 }
 
@@ -324,7 +324,7 @@ async function addGizmoAccess(gizmoId, token, accessType = 'owner') {
 
         return true;
     } catch (error) {
-        throw error;
+        console.error(`Error upserting gizmo access to ${token}: ${error.message}`);
     }
 }
 
