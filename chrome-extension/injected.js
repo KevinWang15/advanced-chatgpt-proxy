@@ -159,17 +159,33 @@ function isChatGPT() {
     return window.location.origin === "https://chatgpt.com";
 }
 
+const FIRST_CHECK_DELAY = 10_000;
+const MIN_BACKOFF = 8_000;
+const MAX_BACKOFF = 1_800_000;
+
+const getBackoff = () => {
+    const ms = +sessionStorage.getItem('reloadBackoff') || MIN_BACKOFF;
+    return Math.max(ms, MIN_BACKOFF);
+};
+
+const bumpBackoff = ms => sessionStorage.setItem('reloadBackoff', Math.min(ms * 2, MAX_BACKOFF));
+
+const clearBackoff = () => sessionStorage.removeItem('reloadBackoff');
+
 onDOMReady(function () {
     if (isChatGPT()) {
         DOMReady = true;
         setTimeout(() => {
-            if (!injectionIsReady()) {
-                showErrorToast("ChatGPT injection is not working.\nMake sure you are using the mitm proxy that comes with advanced-chatgpt-proxy, or the mitm proxy needs updating. Or you may need to clear browser cache.", 10000);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 8000);
+            if (injectionIsReady()) {
+                clearBackoff();
+                return;
             }
-        }, 5000);
+
+            const backoff = getBackoff();
+            showErrorToast(`ChatGPT injection is not working. Make sure you are using the mitm proxy that comes with advanced-chatgpt-proxy, or the mitm proxy needs updating. Or you may need to clear browser cache. Reloading in ${backoff / 1000}s`, 10000);
+            setTimeout(() => window.location.reload(), backoff);
+            bumpBackoff(backoff);
+        }, FIRST_CHECK_DELAY);
     }
 });
 
