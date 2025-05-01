@@ -772,14 +772,14 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                     const userConversations = await listUserConversations(req.cookies?.access_token);
                     const ids = {};
                     for (let uc of userConversations) {
-                        ids[uc.conversation_id] = true;
+                        ids[uc.conversationId] = true;
                     }
 
                     let parsed = JSON.parse(modifiedContent);
 
                     if (!process.env.NO_CONVERSATION_ISOLATION) {
                         if (targetPath.includes('/search?')) {
-                            parsed.items = parsed.items.filter((item) => !!ids[item.conversation_id]);
+                            parsed.items = parsed.items.filter((item) => !!ids[item.conversationId]);
                         } else {
                             parsed.items.forEach((item) => {
                                 if (!ids[item.id]) {
@@ -796,7 +796,7 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                     const userGizmos = await listUserGizmos(req.cookies?.access_token);
                     const ids = {};
                     for (let uc of userGizmos) {
-                        ids[uc.gizmo_id] = true;
+                        ids[uc.gizmoId] = true;
                     }
 
                     let parsed = JSON.parse(modifiedContent);

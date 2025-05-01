@@ -459,11 +459,11 @@ whenReady(function () {
                 await pollUntil(() => window.location.href.endsWith("/?model"));
 
                 let expectedPath = '';
-                if (task.raw_payload.conversation_mode.kind === 'gizmo_interaction' && task.raw_payload.conversation_mode.gizmo_id) {
+                if (task.raw_payload.conversation_mode.kind === 'gizmo_interaction' && task.raw_payload.conversation_mode.gizmoId) {
                     if (task.conversation_id) {
-                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmo_id + '/c/' + task.conversation_id;
+                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/c/' + task.conversation_id;
                     } else {
-                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmo_id + '/project';
+                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/project';
                     }
                 } else {
                     if (task.conversation_id) {
