@@ -70,7 +70,7 @@ async function performDegradationCheckForAccount(account) {
 
         console.log(`Degradation check successful for ${account.name}`);
     } catch (error) {
-        console.error(`Degradation check failed for ${account.name} (attempt ${retries}):`, error);
+        console.error(`Degradation check failed for ${account.name}:`, error);
         accountState.lastDegradationResult = null;
         accountState.lastCheckTime = Date.now();
     }
