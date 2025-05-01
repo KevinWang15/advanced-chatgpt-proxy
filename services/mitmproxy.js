@@ -199,7 +199,7 @@ function handleAaaaaMitm(clientSocket, head) {
         const [centralServerHost, centralServerPort] = config.worker.centralServer.split(":");
         // Create connection to target WebSocket server
         const targetSocket = net.connect(+centralServerPort, centralServerHost, () => {
-            console.log('Connected to WebSocket server at 127.0.0.1');
+            console.log(`Connected to WebSocket server at ${centralServerHost}:${+centralServerPort}`);
 
             // Set up error handling for the target socket
             attachErrorHandlers(targetSocket);
