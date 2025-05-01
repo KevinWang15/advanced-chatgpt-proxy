@@ -200,7 +200,7 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 
             // Attempt to do work again
             if (retryCount < 3) {
-                doWork(task, res, selectedAccount, {retryCount: retryCount + 1}).then(resolve).catch(reject);
+                doWork(task, req, res, selectedAccount, {retryCount: retryCount + 1}).then(resolve).catch(reject);
             } else {
                 reject(new Error("Maximum retries reached"));
             }
