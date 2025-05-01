@@ -6,6 +6,8 @@ if (!process.env.CONFIG) {
 }
 
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const {startReverseProxy} = require("./services/reverseproxy");
 const {addConversationAccess} = require("./services/auth");
 const startMitmProxyForBrowser = require("./services/mitmproxy");
@@ -49,7 +51,6 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
 
 
 if (isCentralServer) {
-    let socketIoHttpServer;
     let io;
 
     if (!config.centralServer?.socketIoPort) {
@@ -57,19 +58,40 @@ if (isCentralServer) {
     }
 
     const port = config.centralServer.socketIoPort;
-    // Central server listens on configured port
     const host = config.centralServer.host || "127.0.0.1";
-    socketIoHttpServer = http.createServer();
-    io = new Server(socketIoHttpServer, {
-        path: "/socket.io/",
-        cors: {
-            origin: "*",
-            methods: ["GET", "POST"]
-        }
-    });
-    socketIoHttpServer.listen(port, host, () => {
-        logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
-    });
+
+    if (config.centralServer.socketIoTlsKey && config.centralServer.socketIoTlsCert) {
+        const tlsOpts = {
+            key: fs.readFileSync(config.centralServer.socketIoTlsKey),
+            cert: fs.readFileSync(config.centralServer.socketIoTlsCert),
+        };
+
+        let httpsServer = https.createServer(tlsOpts);
+        io = new Server(httpsServer, {
+            path: "/socket.io/",
+            cors: {
+                origin: "*",
+                methods: ["GET", "POST"]
+            }
+        });
+
+        httpsServer.listen(port, host, () => {
+            logger.info(`Central Server SocketIO listening on https://${host}:${port}`);
+        });
+    } else {
+        let httpServer = http.createServer();
+        io = new Server(httpServer, {
+            path: "/socket.io/",
+            cors: {
+                origin: "*",
+                methods: ["GET", "POST"]
+            }
+        });
+
+        httpServer.listen(port, host, () => {
+            logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
+        });
+    }
 
     let dynamicNsp = io.of(/^\/.*$/);
 
@@ -182,7 +204,7 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
             } else {
                 reject(new Error("Maximum retries reached"));
             }
-        }, 2000);
+        }, 5000);
 
         // Listen for ack
         socket.once("ackWork", handleAck);

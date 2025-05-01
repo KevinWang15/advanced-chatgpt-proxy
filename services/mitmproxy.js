@@ -203,11 +203,9 @@ function handleAaaaaMitm(clientSocket, head) {
 
             const tlsOptions = {
                 host: url.hostname,
-                port: url.port ? +url.port : 443,   // default to 443 if no port specified
-                servername: url.hostname,          // SNI for multi-cert hosts
-                rejectUnauthorized: true,          // flip to false only in a dev lab
-                // ca: fs.readFileSync('./central-ca.pem')  // ← uncomment for private CAs
-                // ALPNProtocols: ['http/1.1']             // rarely needed, but available
+                port: url.port ? +url.port : 443,
+                servername: url.hostname,
+                rejectUnauthorized: true,
             };
 
             targetSocket = tls.connect(tlsOptions, () => {
