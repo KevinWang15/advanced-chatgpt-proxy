@@ -408,7 +408,7 @@ whenReady(function () {
 
         // Create socket connection with the workerId as query param (without accountName initially)
         socket = io("https://aaaaa.chatgpt.com/socketio", {
-            transports: ['polling'],
+            // transports: ['polling'],
             query: {workerId},
             auth: {
                 account: JSON.parse(localStorage.getItem('chatgptAccount')),
