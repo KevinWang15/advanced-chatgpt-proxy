@@ -127,7 +127,7 @@ const {key: ephemeralKey, cert: ephemeralCert} = generateEphemeralCert(INTERCEPT
 const {key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert} = generateEphemeralCert("aaaaa.chatgpt.com");
 
 function runMitm(account) {
-    return new Promise((resolve)=>{
+    return new Promise((resolve) => {
         const server = http.createServer((req, res) => {
             if (req.url === "/setup-extension") {
                 res.writeHead(200, {"Content-Type": "text/html"});
@@ -157,7 +157,7 @@ function runMitm(account) {
         server.listen(0, () => {
             const port = server.address().port;
             console.log(`\n* Proxy for ${account.name} listening on port ${port}.`);
-            resolve({port,closeServer:()=>server.close()});
+            resolve({port, closeServer: () => server.close()});
         });
     });
 }
@@ -195,21 +195,50 @@ const responseCache = new Map();
 function handleAaaaaMitm(clientSocket, head) {
     const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
+        let targetSocket;
 
-        const [centralServerHost, centralServerPort] = config.worker.centralServer.split(":");
-        // Create connection to target WebSocket server
-        const targetSocket = net.connect(+centralServerPort, centralServerHost, () => {
-            console.log(`Connected to WebSocket server at ${centralServerHost}:${+centralServerPort}`);
+        if (config.worker.centralServer.startsWith('wss://')) {
+            /* ---------- secure (WSS) upstream hop ---------------------------------- */
+            const url = new URL(config.worker.centralServer);
 
-            // Set up error handling for the target socket
-            attachErrorHandlers(targetSocket);
+            const tlsOptions = {
+                host: url.hostname,
+                port: url.port ? +url.port : 443,   // default to 443 if no port specified
+                servername: url.hostname,          // SNI for multi-cert hosts
+                rejectUnauthorized: true,          // flip to false only in a dev lab
+                // ca: fs.readFileSync('./central-ca.pem')  // ← uncomment for private CAs
+                // ALPNProtocols: ['http/1.1']             // rarely needed, but available
+            };
 
-            // Immediately pipe data in both directions
-            tlsClientSocket.pipe(targetSocket);
-            targetSocket.pipe(tlsClientSocket);
-        });
+            targetSocket = tls.connect(tlsOptions, () => {
+                console.log(
+                    `🔒 TLS established to ${tlsOptions.host}:${tlsOptions.port} – ` +
+                    `authorized=${targetSocket.authorized}`
+                );
 
-        // Handle connection errors
+                attachErrorHandlers(targetSocket);
+
+                // Wire the client <--> upstream tunnel once TLS is up
+                tlsClientSocket.pipe(targetSocket);
+                targetSocket.pipe(tlsClientSocket);
+            });
+
+        } else {
+            const [centralServerHost, centralServerPort] = config.worker.centralServer.split(":");
+            // Create connection to target WebSocket server
+            targetSocket = net.connect(+centralServerPort, centralServerHost, () => {
+                console.log(`Connected to WebSocket server at ${centralServerHost}:${+centralServerPort}`);
+
+                // Set up error handling for the target socket
+                attachErrorHandlers(targetSocket);
+
+                // Immediately pipe data in both directions
+                tlsClientSocket.pipe(targetSocket);
+                targetSocket.pipe(tlsClientSocket);
+            });
+        }
+
+        /* ---------- common error handling ---------------------------------------- */
         targetSocket.on('error', (err) => {
             console.error('Error connecting to WebSocket server:', err);
             tlsClientSocket.destroy();

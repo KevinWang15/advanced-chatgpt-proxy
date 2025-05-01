@@ -18,13 +18,6 @@ const getAllAccounts = () => {
     return Object.values(accounts);
 };
 
-const getSocketIOServerPort = async () => {
-    if (!config.centralServer?.socketIoPort) {
-        throw new Error("config.centralServer.socketIoPort must be set");
-    }
-    return config.centralServer.socketIoPort;
-};
-
 function purgeWorker(workerId) {
     delete workers[workerId];
 
@@ -43,7 +36,6 @@ function purgeWorker(workerId) {
 }
 
 module.exports = {
-    getSocketIOServerPort,
     workers,
     accounts,
     getAllAccounts,

@@ -16,7 +16,6 @@ const {startAllWithChrome, startAllWithAdsPower} = require("./services/launch_br
 const {
     workers,
     accounts,
-    getSocketIOServerPort,
     purgeWorker,
 } = require("./state/state");
 const path = require("path");
@@ -48,29 +47,89 @@ delete process.env.HTTPS_PROXY;
 delete process.env.ALL_PROXY;
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
 
-// Create Socket.IO server
-const socketIoHttpServer = http.createServer();
-const io = new Server(socketIoHttpServer, {
-    path: "/socket.io/",
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+
+if (isCentralServer) {
+    let socketIoHttpServer;
+    let io;
+
+    if (!config.centralServer?.socketIoPort) {
+        throw new Error("config.centralServer.socketIoPort must be set");
     }
-});
 
-const dynamicNsp = io.of(/^\/.*$/);
+    const port = config.centralServer.socketIoPort;
+    // Central server listens on configured port
+    const host = config.centralServer.host || "127.0.0.1";
+    socketIoHttpServer = http.createServer();
+    io = new Server(socketIoHttpServer, {
+        path: "/socket.io/",
+        cors: {
+            origin: "*",
+            methods: ["GET", "POST"]
+        }
+    });
+    socketIoHttpServer.listen(port, host, () => {
+        logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
+    });
 
-// Initialize and start Socket.IO server
-(async function () {
-    if (isCentralServer) {
-        const port = await getSocketIOServerPort();
-        // Central server listens on configured port
-        const host = config.centralServer.host || "127.0.0.1";
-        socketIoHttpServer.listen(port, host, () => {
-            logger.info(`Central Server SocketIO listening on http://${host}:${port}`);
+    let dynamicNsp = io.of(/^\/.*$/);
+
+    // Socket.io connection handler
+    io.engine.pingTimeout = 60000;
+    io.engine.pingInterval = 10000;
+
+    dynamicNsp.on("connection", (socket) => {
+        // Get worker info from handshake query
+        const {workerId} = socket.handshake.query;
+
+        const {account} = socket.handshake.auth;
+
+        if (!accountStatusMap[account.name]) {
+            accountStatusMap[account.name] = {
+                lastDegradationResult: null,
+                lastCheckTime: null,
+            };
+        }
+
+        if (!workerId) {
+            console.log("A connection was made without a workerId. Disconnecting...");
+            return socket.disconnect(true);
+        }
+
+        if (!account?.name) {
+            console.log("A connection was made without an accountName. Disconnecting...");
+            return socket.disconnect(true);
+        }
+
+        console.log(`Worker ${workerId} (${account.name}) connected.`);
+
+        // Store worker with account info
+        workers[workerId] = {
+            socket,
+            accountName: account.name,
+            available: true,
+        };
+
+        accounts[account.name] = account;
+
+        //  Normal disconnect handling
+        socket.on("disconnect", (reason) => {
+            console.log(`Worker ${workerId} disconnected (${reason})`);
+            setTimeout(() => {
+                if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
+                    workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
+                    workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
+                }
+                // there might be race condition, if disconnect arrives before the "network"
+            }, 5000);
+            purgeWorker(workerId);
         });
-    }
-})()
+
+        socket.on("network", (data) => {
+            handleNetwork({...data, workerId: workerId}, socket);
+        });
+    });
+}
+
 
 async function findAvailableWorker(selectedAccount) {
     const startTime = Date.now();
@@ -145,63 +204,6 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
         socket.emit("assignWork", {task});
     });
 }
-
-// Socket.io connection handler
-// Configure Socket.io server options
-io.engine.pingTimeout = 60000; // How long to wait for a ping response (ms)
-io.engine.pingInterval = 10000; // How often to ping clients (ms)
-
-dynamicNsp.on("connection", (socket) => {
-    // Get worker info from handshake query
-    const {workerId} = socket.handshake.query;
-
-    const {account} = socket.handshake.auth;
-
-    if (!accountStatusMap[account.name]) {
-        accountStatusMap[account.name] = {
-            lastDegradationResult: null,
-            lastCheckTime: null,
-        };
-    }
-
-    if (!workerId) {
-        console.log("A connection was made without a workerId. Disconnecting...");
-        return socket.disconnect(true);
-    }
-
-    if (!account?.name) {
-        console.log("A connection was made without an accountName. Disconnecting...");
-        return socket.disconnect(true);
-    }
-
-    console.log(`Worker ${workerId} (${account.name}) connected.`);
-
-    // Store worker with account info
-    workers[workerId] = {
-        socket,
-        accountName: account.name,
-        available: true,
-    };
-
-    accounts[account.name] = account;
-
-    //  Normal disconnect handling
-    socket.on("disconnect", (reason) => {
-        console.log(`Worker ${workerId} disconnected (${reason})`);
-        setTimeout(() => {
-            if (workers[workerId] && workers[workerId].responseWriter && !workers[workerId].responseWriter.headersSent) {
-                workers[workerId].responseWriter.writeHead(500, {'Content-Type': 'application/json'});
-                workers[workerId].responseWriter.end(JSON.stringify({error: 'Worker disconnected unexpectedly. Please copy your prompt, refresh the page, and try again.'}));
-            }
-            // there might be race condition, if disconnect arrives before the "network"
-        }, 5000);
-        purgeWorker(workerId);
-    });
-
-    socket.on("network", (data) => {
-        handleNetwork({...data, workerId: workerId}, socket);
-    });
-});
 
 // Handle network messages
 function handleNetwork(data, socket) {
