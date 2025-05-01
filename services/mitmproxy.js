@@ -366,7 +366,7 @@ function handleCdnOaiStaticComMitm(account, clientSocket, head) {
                 };
 
                 // 3) Apply transformations
-                body = doReplacements(bodyPart);
+                body = doReplacements(bodyPart, account);
 
                 // 4) Build HTTP response headers
                 responseHeaders = buildHttpResponseHeaders(realResp, body);
@@ -453,8 +453,8 @@ async function handleDirectTcpTunnel(req, account, clientSocket, head) {
     }
 }
 
-function doReplacements(body) {
-    const replacements = [
+function doReplacements(body, account) {
+    let replacements = [
         {
             pattern: /static auth0Client=null;/g,
             replacement: 'static auth0Client=null;static xxxxx=(function(){window.oaiapi=$1;window.inj1=true;})();'
@@ -462,21 +462,34 @@ function doReplacements(body) {
         {
             pattern: /let\{router:(.{1,5})}=(.{1,5})\("useNavigate"\)/g,
             replacement: 'let{router:$1}=$2("useNavigate"),xxx=(window.oairouter=(window.inj2=true)&&$1)'
-        },
-        {
-            pattern: /function (.{0,100}?)id:(.{0,100}?)\(\),author:(\w+),create_time/g,
-            replacement: 'window.inj3=true;function $1id:window.hpmid?(function(){var id=window.hpmid;window.hpmid=null;return id;})():$2(),author:$3,create_time'
-        },
-        {
-            pattern: /function (.+?),content:typeof (.)==(.+?)metadata:/g,
-            replacement: 'window.inj4=true;function $1,content:window.hpcrp?(function(){let a=window.hpcrp.messages[0].content;window.hpcrp=null;return a;})():typeof $2==$3metadata:window.hpcrpm?(function(){let a=window.hpcrpm.messages[0].metadata;window.hpcrpm=null;return a;})():'
-        },
-        {
-            pattern: /function(.+?)Variant,requestedModelId:/g,
-            replacement: 'function$1Variant,requestedModelId:window.hpcrp2?(()=>{let v=window.hpcrp2.model;window.hpcrp2=null;return v;})():',
-            addToHead: 'window.inj5=true;\n',
         }
     ];
+
+    if (account.highEffortMode) {
+        replacements.push(
+            {
+                pattern: /function (.{0,100}?)id:(.{0,100}?)\(\),author:(\w+),create_time/g,
+                replacement: 'window.inj3=true;function $1id:window.hpmid?(function(){var id=window.hpmid;window.hpmid=null;return id;})():$2(),author:$3,create_time'
+            },
+            {
+                pattern: /function (.+?),content:typeof (.)==(.+?)metadata:/g,
+                replacement: 'window.inj4=true;function $1,content:window.hpcrp?(function(){let a=window.hpcrp.messages[0].content;window.hpcrp=null;return a;})():typeof $2==$3metadata:window.hpcrpm?(function(){let a=window.hpcrpm.messages[0].metadata;window.hpcrpm=null;return a;})():'
+            },
+            {
+                pattern: /function(.+?)Variant,requestedModelId:/g,
+                replacement: 'function$1Variant,requestedModelId:window.hpcrp2?(()=>{let v=window.hpcrp2.model;window.hpcrp2=null;return v;})():',
+                addToHead: 'window.inj5=true;\n',
+            },
+        );
+    } else {
+        replacements.push(
+            {
+                pattern: /function ([a-zA-Z(){ ]+?)const(\s*[a-zA-Z]+?)="threadId"/g,
+                replacement: 'function $1return window.hpcrpxx;const$2="threadId"',
+                addToHead: 'window.inj3=true;window.inj4=true;window.inj5=true;window.inj6=true;\n',
+            }
+        )
+    }
 
     // Apply each replacement to the body
     let modifiedBody = body;

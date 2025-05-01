@@ -5,7 +5,7 @@
         const [input, init = {}] = args;
 
         // Check for the specific URL pattern
-        if (typeof input === 'string' && input.includes('ces/statsc/flush')) {
+        if (typeof input === 'string' && (input.includes('ces/statsc/flush') || input.includes('/ces/') || input.includes('/v1/rgstr') || input.includes('/backend-api/lat/r'))) {
             // Mock a 200 response with empty JSON object
             return Promise.resolve(new Response('{}', {
                 status: 200,

@@ -505,47 +505,12 @@ whenReady(function () {
                 window.hpcrp = {...task.raw_payload, path_to_message: undefined};
                 window.hpcrpm = {...task.raw_payload, path_to_message: undefined};
                 window.hpcrp2 = {...task.raw_payload, path_to_message: undefined};
+                window.hpcrpxx = {...task.raw_payload, path_to_message: undefined};
                 window.hpmid = task.preferred_message_id;
                 delete_conversation_immediately_afterwards = task.raw_payload.delete_conversation_immediately_afterwards;
                 theAccessToken = task.raw_payload.theAccessToken;
                 delete task.raw_payload.delete_conversation_immediately_afterwards;
                 delete task.raw_payload.theAccessToken;
-
-                if (task.action === "variant") {
-                    const parentMessage = await findParentMessage(task);
-                    const messageToRegenerate = await pollUntil(() =>
-                        parentMessage.closest("article").nextSibling
-                    );
-
-                    if (!messageToRegenerate.innerText) {
-                        // 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
-                    }
-
-                    messageToRegenerate.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
-                    const regenerateButton = await pollUntil(
-                        () => {
-                            const buttons = messageToRegenerate.querySelectorAll('div.items-center button');
-                            return buttons[buttons.length - 1];
-                        }
-                    );
-
-                    const tryAgainButton = await pollUntil(
-                        async () => {
-                            regenerateButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
-                            await sleep(100);
-
-                            const buttons = (Array.from(document.querySelectorAll("div[role='menuitem']")) || []).filter(x => x.innerText.startsWith("Try again"));
-                            if (buttons && buttons.length > 0) {
-                                return buttons[0];
-                            }
-                            return false;
-                        }
-                    );
-
-                    tryAgainButton.click();
-
-                    return true;
-                }
 
                 const mainRoutine = async function () {
                     const getSendButton = async () => await pollUntil(
@@ -628,6 +593,47 @@ whenReady(function () {
                     });
                 };
 
+                if (!isHighEffortMode()) {
+                    await mainRoutine();
+                    return true;
+                }
+
+                if (task.action === "variant") {
+                    const parentMessage = await findParentMessage(task);
+                    const messageToRegenerate = await pollUntil(() =>
+                        parentMessage.closest("article").nextSibling
+                    );
+
+                    if (!messageToRegenerate.innerText) {
+                        // 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
+                    }
+
+                    messageToRegenerate.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
+                    const regenerateButton = await pollUntil(
+                        () => {
+                            const buttons = messageToRegenerate.querySelectorAll('div.items-center button');
+                            return buttons[buttons.length - 1];
+                        }
+                    );
+
+                    const tryAgainButton = await pollUntil(
+                        async () => {
+                            regenerateButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+                            await sleep(100);
+
+                            const buttons = (Array.from(document.querySelectorAll("div[role='menuitem']")) || []).filter(x => x.innerText.startsWith("Try again"));
+                            if (buttons && buttons.length > 0) {
+                                return buttons[0];
+                            }
+                            return false;
+                        }
+                    );
+
+                    tryAgainButton.click();
+
+                    return true;
+                }
+
                 if (!task.raw_payload.conversation_id) {
                     // new conversation
                     await mainRoutine();
@@ -677,6 +683,14 @@ function getAccountName() {
         return 'Unknown Account';
     }
     return JSON.parse(acc).name;
+}
+
+function isHighEffortMode() {
+    let acc = localStorage.getItem('chatgptAccount');
+    if (!acc) {
+        throw 'Unknown Account';
+    }
+    return JSON.parse(acc).highEffortMode;
 }
 
 function whenReady(callback) {
