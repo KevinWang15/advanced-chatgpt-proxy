@@ -1,5 +1,6 @@
 // AdsPower API Client
 const axios = require('axios');
+const os = require('os');
 
 function getUaSystemVersionByRealOS() {
     const platform = os.platform();

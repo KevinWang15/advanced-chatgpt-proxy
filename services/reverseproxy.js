@@ -99,7 +99,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
             // Schedule checks for each account with random delay
             for (const account of accounts) {
-                const delaySeconds = accounts.length === 1 ? 0 : Math.floor(Math.random() * (30 - 10 + 1) + 10); // Random 10-30 seconds
+                const delaySeconds = accounts.length === 1 ? 0 : Math.floor(Math.random() * 60);
                 const delayMs = delaySeconds * 1000;
                 results.push({
                     account: account.name,
