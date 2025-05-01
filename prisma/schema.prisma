@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "darwin-arm64", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Token {
+  token             String   @id
+  createdAt         DateTime @default(now()) @map("created_at")
+  webhookUrl        String?  @map("webhook_url")
+  isManaged         Boolean  @default(false) @map("is_managed")
+  conversationAccess ConversationAccess[]
+  gizmoAccess       GizmoAccess[]
+
+  @@map("tokens")
+}
+
+model ConversationAccess {
+  token          String
+  conversationId String   @map("conversation_id")
+  accessType     String   @map("access_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+  token_relation Token    @relation(fields: [token], references: [token], onDelete: Cascade)
+
+  @@id([token, conversationId])
+  @@map("conversation_access")
+}
+
+model GizmoAccess {
+  token      String
+  gizmoId    String   @map("gizmo_id")
+  accessType String   @map("access_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+  token_relation Token @relation(fields: [token], references: [token], onDelete: Cascade)
+
+  @@id([token, gizmoId])
+  @@map("gizmo_access")
+}

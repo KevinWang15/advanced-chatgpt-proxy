@@ -12,3 +12,5 @@ config.centralserver.js
 config.worker.js
 config.worker.xx.js
 config.adminconsole.js
+
+.env

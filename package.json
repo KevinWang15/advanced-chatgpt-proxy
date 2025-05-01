@@ -4,10 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
   },
   "private": true,
   "dependencies": {
+    "@prisma/client": "^5.10.2",
     "axios": "^1.8.4",
     "body-parser": "^2.2.0",
     "cookie-parser": "^1.4.7",
@@ -17,6 +21,7 @@
     "find-git-root": "^1.0.4",
     "http-proxy-middleware": "^3.0.3",
     "https-proxy-agent": "^7.0.6",
+    "mysql2": "^3.9.2",
     "node-forge": "^1.3.1",
     "puppeteer-core": "^24.6.1",
     "puppeteer-extra": "^3.3.6",
@@ -28,5 +33,8 @@
     "sqlite3": "^5.1.7",
     "uuid": "^11.1.0",
     "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.2"
   }
 }

@@ -1,10 +1,11 @@
-const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 const path = require('path');
 const {v4: uuidv4} = require('uuid');
 const axios = require('axios');
 const config = require(path.join(__dirname, "..", process.env.CONFIG || "config.centralserver.js"));
+const { PrismaClient } = require('@prisma/client');
 
+const prisma = new PrismaClient();
 const internalAuthenticationToken = uuidv4();
 
 function getInternalAuthenticationToken() {
@@ -17,174 +18,61 @@ function verifyIntegrationApiKey(apiKey) {
     return apiKey === configApiKey && !!configApiKey;
 }
 
-// Initialize database
-const dbPath = path.join(__dirname, 'auth.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Error opening auth database:', err.message);
-    } else {
-        console.log('Connected to the auth database.');
-
-        // Create tokens table if it doesn't exist
-        db.run(`CREATE TABLE IF NOT EXISTS tokens
-                (
-                    token
-                    TEXT
-                    PRIMARY
-                    KEY,
-                    created_at
-                    INTEGER
-                    NOT
-                    NULL,
-                    webhook_url
-                    TEXT,
-                    is_managed
-                    INTEGER
-                    DEFAULT 0
-                )`, (err) => {
-            if (err) {
-                console.error('Error creating tokens table:', err.message);
-            } else {
-                console.log('Tokens table ready');
-            }
-        });
-
-        // Create conversation_access table if it doesn't exist
-        db.run(`CREATE TABLE IF NOT EXISTS conversation_access
-        (
-            token
-            TEXT
-            NOT
-            NULL,
-            conversation_id
-            TEXT
-            NOT
-            NULL,
-            access_type
-            TEXT
-            NOT
-            NULL,
-            created_at
-            INTEGER
-            NOT
-            NULL,
-            PRIMARY
-            KEY
-                (
-            token,
-            conversation_id
-                ),
-            FOREIGN KEY
-                (
-                    token
-                ) REFERENCES tokens
-                (
-                    token
-                ) ON DELETE CASCADE
-            )`, (err) => {
-            if (err) {
-                console.error('Error creating conversation_access table:', err.message);
-            } else {
-                console.log('Conversation access table ready');
-            }
-        });
-
-        // Create gizmo_access table if it doesn't exist
-        db.run(`CREATE TABLE IF NOT EXISTS gizmo_access
-        (
-            token
-            TEXT
-            NOT
-            NULL,
-            gizmo_id
-            TEXT
-            NOT
-            NULL,
-            access_type
-            TEXT
-            NOT
-            NULL,
-            created_at
-            INTEGER
-            NOT
-            NULL,
-            PRIMARY
-            KEY
-                (
-            token,
-            gizmo_id
-                ),
-            FOREIGN KEY
-                (
-                    token
-                ) REFERENCES tokens
-                (
-                    token
-                ) ON DELETE CASCADE
-            )`, (err) => {
-            if (err) {
-                console.error('Error creating gizmo_access table:', err.message);
-            } else {
-                console.log('Gizmo access table ready');
-            }
-        });
-    }
-});
-
 // Generate a secure random token
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
 // Save a token to the database
-function saveToken(token, webhookUrl = null, isManaged = 0) {
-    return new Promise((resolve, reject) => {
-        const stmt = db.prepare('INSERT INTO tokens (token, created_at, webhook_url, is_managed) VALUES (?, ?, ?, ?)');
-        stmt.run(token, Date.now(), webhookUrl, isManaged, function (err) {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(this.lastID);
+async function saveToken(token, webhookUrl = null, isManaged = 0) {
+    try {
+        const result = await prisma.token.create({
+            data: {
+                token,
+                webhookUrl,
+                isManaged: isManaged === 1
             }
         });
-        stmt.finalize();
-    });
+        return result.token;
+    } catch (error) {
+        throw error;
+    }
 }
 
 // Verify if a token exists in the database
-function verifyToken(token) {
-    return new Promise((resolve, reject) => {
-        if (!token) {
-            resolve(false);
-            return;
-        }
+async function verifyToken(token) {
+    if (!token) {
+        return false;
+    }
 
-        db.get('SELECT token FROM tokens WHERE token = ?', [token], (err, row) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(!!row);
+    try {
+        const tokenRecord = await prisma.token.findUnique({
+            where: {
+                token
             }
         });
-    });
+        return !!tokenRecord;
+    } catch (error) {
+        throw error;
+    }
 }
 
 // Get token information including webhook URL
-function getTokenInfo(token) {
-    return new Promise((resolve, reject) => {
-        if (!token) {
-            resolve(null);
-            return;
-        }
+async function getTokenInfo(token) {
+    if (!token) {
+        return null;
+    }
 
-        db.get('SELECT token, webhook_url, is_managed, created_at FROM tokens WHERE token = ?', [token], (err, row) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(row || null);
+    try {
+        const tokenRecord = await prisma.token.findUnique({
+            where: {
+                token
             }
         });
-    });
+        return tokenRecord;
+    } catch (error) {
+        throw error;
+    }
 }
 
 /**
@@ -199,12 +87,12 @@ async function callWebhook(token, operation, data) {
         const tokenInfo = await getTokenInfo(token);
         
         // If not a managed user or no webhook URL, default to allowed
-        if (!tokenInfo || !tokenInfo.is_managed || !tokenInfo.webhook_url) {
+        if (!tokenInfo || !tokenInfo.isManaged || !tokenInfo.webhookUrl) {
             return { allowed: true };
         }
         
         // Call the webhook URL
-        const response = await axios.post(tokenInfo.webhook_url, {
+        const response = await axios.post(tokenInfo.webhookUrl, {
             token: token,
             operation: operation,
             timestamp: Date.now(),
@@ -234,235 +122,253 @@ async function callWebhook(token, operation, data) {
 }
 
 // Conversation Access Functions
-function checkConversationAccess(conversationId, token, requiredAccessType = null) {
+async function checkConversationAccess(conversationId, token, requiredAccessType = null) {
     if (!token) { // x-internal-authentication
         return true;
     }
     if (process.env.NO_CONVERSATION_ISOLATION) {
         return true;
     }
-    return new Promise((resolve, reject) => {
-        if (!token || !conversationId) {
-            resolve(false);
-            return;
-        }
+    
+    if (!token || !conversationId) {
+        return false;
+    }
 
+    try {
         // Build the query based on whether we need to check for a specific access type
-        let query = 'SELECT access_type FROM conversation_access WHERE token = ? AND conversation_id = ?';
-        const params = [token, conversationId];
-
-        if (requiredAccessType) {
-            query += ' AND access_type = ?';
-            params.push(requiredAccessType);
-        }
-
-        db.get(query, params, (err, row) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(!!row);
-            }
-        });
-    });
-}
-
-function addConversationAccess(conversationId, token, accessType = 'owner') {
-    if (!token) { // x-internal-authentication
-        return true;
-    }
-    if (process.env.NO_CONVERSATION_ISOLATION) {
-        return true;
-    }
-    return new Promise((resolve, reject) => {
-        // First, check if the conversation_id already exists with a different token
-        const checkStmt = db.prepare(
-            'SELECT token FROM conversation_access WHERE conversation_id = ?'
-        );
-
-        checkStmt.get(conversationId, (err, row) => {
-            if (err) {
-                reject(err);
-            } else if (row && row.token !== token) {
-                // If a different token is associated with the conversation_id, throw an error
-                reject(
-                    new Error(
-                        'Access to this conversation cannot be granted. A different user already has access.'
-                    )
-                );
-            } else {
-                // If no conflicting token, insert or replace access record
-                const stmt = db.prepare(
-                    'INSERT OR REPLACE INTO conversation_access (token, conversation_id, access_type, created_at) VALUES (?, ?, ?, ?)'
-                );
-
-                stmt.run(token, conversationId, accessType, Date.now(), function (err) {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(true);
-                    }
-                });
-
-                stmt.finalize();
-            }
-        });
-
-        checkStmt.finalize();
-    });
-}
-
-function listUserConversations(token) {
-    return new Promise((resolve, reject) => {
-        if (!token) {
-            resolve([]);
-            return;
-        }
-
-        db.all(
-            'SELECT conversation_id, access_type FROM conversation_access WHERE token = ? ORDER BY created_at DESC',
-            [token],
-            (err, rows) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(rows || []);
+        const query = {
+            where: {
+                token_conversationId: {
+                    token,
+                    conversationId
                 }
             }
-        );
-    });
+        };
+
+        if (requiredAccessType) {
+            query.where.accessType = requiredAccessType;
+        }
+
+        const access = await prisma.conversationAccess.findUnique(query);
+        return !!access;
+    } catch (error) {
+        throw error;
+    }
 }
 
-function removeConversationAccess(conversationId, token) {
-    return new Promise((resolve, reject) => {
-        const stmt = db.prepare('DELETE FROM conversation_access WHERE token = ? AND conversation_id = ?');
+async function addConversationAccess(conversationId, token, accessType = 'owner') {
+    if (!token) { // x-internal-authentication
+        return true;
+    }
+    if (process.env.NO_CONVERSATION_ISOLATION) {
+        return true;
+    }
 
-        stmt.run(token, conversationId, function (err) {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(this.changes > 0);
+    try {
+        // First, check if the conversation_id already exists with a different token
+        const existingAccess = await prisma.conversationAccess.findFirst({
+            where: {
+                conversationId
             }
         });
 
-        stmt.finalize();
-    });
+        if (existingAccess && existingAccess.token !== token) {
+            throw new Error(
+                'Access to this conversation cannot be granted. A different user already has access.'
+            );
+        }
+
+        // If no conflicting token, insert or replace access record
+        const result = await prisma.conversationAccess.upsert({
+            where: {
+                token_conversationId: {
+                    token,
+                    conversationId
+                }
+            },
+            update: {
+                accessType,
+                createdAt: new Date()
+            },
+            create: {
+                token,
+                conversationId,
+                accessType
+            }
+        });
+
+        return true;
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function listUserConversations(token) {
+    if (!token) {
+        return [];
+    }
+
+    try {
+        const conversations = await prisma.conversationAccess.findMany({
+            where: {
+                token
+            },
+            orderBy: {
+                createdAt: 'desc'
+            },
+            select: {
+                conversationId: true,
+                accessType: true
+            }
+        });
+
+        return conversations;
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function removeConversationAccess(conversationId, token) {
+    try {
+        const result = await prisma.conversationAccess.delete({
+            where: {
+                token_conversationId: {
+                    token,
+                    conversationId
+                }
+            }
+        });
+
+        return result !== null;
+    } catch (error) {
+        return false; // Record not found or other error
+    }
 }
 
 // Gizmo Access Functions
-function checkGizmoAccess(gizmoId, token, requiredAccessType = null) {
+async function checkGizmoAccess(gizmoId, token, requiredAccessType = null) {
     if (!token) { // x-internal-authentication
         return true;
     }
     if (process.env.NO_GIZMO_ISOLATION) {
         return true;
     }
-    return new Promise((resolve, reject) => {
-        if (!token || !gizmoId) {
-            resolve(false);
-            return;
-        }
+    
+    if (!token || !gizmoId) {
+        return false;
+    }
 
+    try {
         // Build the query based on whether we need to check for a specific access type
-        let query = 'SELECT access_type FROM gizmo_access WHERE token = ? AND gizmo_id = ?';
-        const params = [token, gizmoId];
-
-        if (requiredAccessType) {
-            query += ' AND access_type = ?';
-            params.push(requiredAccessType);
-        }
-
-        db.get(query, params, (err, row) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(!!row);
-            }
-        });
-    });
-}
-
-function addGizmoAccess(gizmoId, token, accessType = 'owner') {
-    if (!token) { // x-internal-authentication
-        return true;
-    }
-    if (process.env.NO_GIZMO_ISOLATION) {
-        return true;
-    }
-    return new Promise((resolve, reject) => {
-        // First, check if the gizmo_id already exists with a different token and owner access
-        const checkStmt = db.prepare(
-            'SELECT token FROM gizmo_access WHERE gizmo_id = ? AND access_type = "owner"'
-        );
-
-        checkStmt.get(gizmoId, (err, row) => {
-            if (err) {
-                reject(err);
-            } else if (row && row.token !== token && accessType === 'owner') {
-                // If a different token is associated with the gizmo_id as owner, throw an error
-                reject(
-                    new Error(
-                        'Ownership of this gizmo cannot be granted. A different user already owns it.'
-                    )
-                );
-            } else {
-                // If no conflicting token, insert or replace access record
-                const stmt = db.prepare(
-                    'INSERT OR REPLACE INTO gizmo_access (token, gizmo_id, access_type, created_at) VALUES (?, ?, ?, ?)'
-                );
-
-                stmt.run(token, gizmoId, accessType, Date.now(), function (err) {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(true);
-                    }
-                });
-
-                stmt.finalize();
-            }
-        });
-
-        checkStmt.finalize();
-    });
-}
-
-function listUserGizmos(token) {
-    return new Promise((resolve, reject) => {
-        if (!token) {
-            resolve([]);
-            return;
-        }
-
-        db.all(
-            'SELECT gizmo_id, access_type FROM gizmo_access WHERE token = ? ORDER BY created_at DESC',
-            [token],
-            (err, rows) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(rows || []);
+        const query = {
+            where: {
+                token_gizmoId: {
+                    token,
+                    gizmoId
                 }
             }
-        );
-    });
+        };
+
+        if (requiredAccessType) {
+            query.where.accessType = requiredAccessType;
+        }
+
+        const access = await prisma.gizmoAccess.findUnique(query);
+        return !!access;
+    } catch (error) {
+        throw error;
+    }
 }
 
-function removeGizmoAccess(gizmoId, token) {
-    return new Promise((resolve, reject) => {
-        const stmt = db.prepare('DELETE FROM gizmo_access WHERE token = ? AND gizmo_id = ?');
+async function addGizmoAccess(gizmoId, token, accessType = 'owner') {
+    if (!token) { // x-internal-authentication
+        return true;
+    }
+    if (process.env.NO_GIZMO_ISOLATION) {
+        return true;
+    }
 
-        stmt.run(token, gizmoId, function (err) {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(this.changes > 0);
+    try {
+        // First, check if the gizmo_id already exists with a different token and owner access
+        const existingAccess = await prisma.gizmoAccess.findFirst({
+            where: {
+                gizmoId,
+                accessType: 'owner'
             }
         });
 
-        stmt.finalize();
-    });
+        if (existingAccess && existingAccess.token !== token && accessType === 'owner') {
+            throw new Error(
+                'Ownership of this gizmo cannot be granted. A different user already owns it.'
+            );
+        }
+
+        // If no conflicting token, insert or replace access record
+        const result = await prisma.gizmoAccess.upsert({
+            where: {
+                token_gizmoId: {
+                    token,
+                    gizmoId
+                }
+            },
+            update: {
+                accessType,
+                createdAt: new Date()
+            },
+            create: {
+                token,
+                gizmoId,
+                accessType
+            }
+        });
+
+        return true;
+    } catch (error) {
+        throw error;
+    }
 }
 
+async function listUserGizmos(token) {
+    if (!token) {
+        return [];
+    }
+
+    try {
+        const gizmos = await prisma.gizmoAccess.findMany({
+            where: {
+                token
+            },
+            orderBy: {
+                createdAt: 'desc'
+            },
+            select: {
+                gizmoId: true,
+                accessType: true
+            }
+        });
+
+        return gizmos;
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function removeGizmoAccess(gizmoId, token) {
+    try {
+        const result = await prisma.gizmoAccess.delete({
+            where: {
+                token_gizmoId: {
+                    token,
+                    gizmoId
+                }
+            }
+        });
+
+        return result !== null;
+    } catch (error) {
+        return false; // Record not found or other error
+    }
+}
 
 module.exports = {
     generateToken,
