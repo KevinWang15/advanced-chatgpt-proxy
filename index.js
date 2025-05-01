@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 if (!process.env.CONFIG) {
     console.error("CONFIG environment variable is not set. Please set it to the path of your config file.");
     process.exit(1);
