@@ -1,21 +1,11 @@
-const workerId = "worker-" + Math.random().toString(36).substring(2, 9);
+let workerId;
 let isWorking = false;
 let isConnected = false;
-
 let delete_conversation_immediately_afterwards = false;
 let theAccessToken = "";
-
-setTimeout(() => {
-    if (!isWorking) {
-        destroy();
-    }
-}, 10 * 60 * 1000); // 10 minutes timeout, if not working, then reload, to make sure things are always fresh
-
-setTimeout(() => {
-    if (!isConnected) {
-        destroy();
-    }
-}, 30 * 1000);
+let overlay = null;
+let socket = null;
+let workStuckTimeout = null;
 
 setInterval(() => {
     try {
@@ -26,15 +16,322 @@ setInterval(() => {
     }
 }, 5000);
 
+async function init() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+        await sleep(1000);
+    }
+
+
+    workerId = "worker-" + Math.random().toString(36).substring(2, 9);
+    isWorking = false;
+    isConnected = false;
+    delete_conversation_immediately_afterwards = false;
+    theAccessToken = "";
+    workStuckTimeout = null;
+
+
+    const workerIdDisplay = document.getElementById("workerIdDisplay").querySelector("span:last-child");
+    const statusText = document.getElementById("statusText");
+    const statusEmoji = document.getElementById("statusEmoji");
+
+    // Generate a unique workerId (using a simple random string generator)
+    workerIdDisplay.textContent = `ID: ${workerId}`;
+    statusText.textContent = "Connecting...";
+
+
+    // Load the Socket.io client library, then run the main logic
+    const accountName = getAccountName();
+
+    // Create socket connection with the workerId as query param (without accountName initially)
+    socket = io("https://aaaaa.chatgpt.com/socketio", {
+        // transports: ['polling'],
+        query: {workerId},
+        auth: {
+            account: JSON.parse(localStorage.getItem('chatgptAccount')),
+        },
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 5000,
+        pingTimeout: 60000,
+        pingInterval: 10000
+    });
+
+    // Update the account name display
+    document.getElementById("accountNameDisplay").textContent = accountName;
+
+    // On socket connection, update overlay
+    socket.on("connect", () => {
+        console.log("Socket connected for worker", workerId);
+        statusText.textContent = "Connected";
+        statusEmoji.textContent = "✅";
+        overlay.className = "connected";
+        isConnected = true;
+    });
+
+    // If the socket disconnects, destroy the worker
+    socket.on("disconnect", () => {
+        console.warn("Socket disconnect; destroying worker.");
+        statusText.textContent = "Disconnected";
+        statusEmoji.textContent = "❌";
+        overlay.className = "disconnected";
+        setTimeout(destroy, 500);
+    });
+
+    socket.on("stopGeneration", async () => {
+        const stopButton = document.querySelector('button[aria-label="Stop streaming"]');
+        if (stopButton) {
+            stopButton.click();
+            setTimeout(() => {
+                destroy();
+            }, 1000);
+        }
+    });
+
+    // When assigned work from the server
+    socket.on("assignWork", async (data) => {
+        console.log("Received work assignment:", data);
+
+        // Update status
+        statusText.textContent = "Working...";
+        statusEmoji.textContent = "⚡";
+        isWorking = true;
+
+        // Immediately acknowledge the work
+        socket.emit("ackWork");
+
+        workStuckTimeout = setTimeout(() => {
+            window.location.href = "/";
+        }, 30 * 60 * 1000); // it's impossible that work takes more than 30 minutes, if so it's stuck, and we should reload
+
+        const doWork = async () => {
+            const {task} = data;
+            await window.oairouter.navigate('/?model');
+            await pollUntil(() => window.location.href.endsWith("/?model"));
+
+            let expectedPath = '';
+            if (task.raw_payload.conversation_mode.kind === 'gizmo_interaction' && task.raw_payload.conversation_mode.gizmoId) {
+                if (task.conversation_id) {
+                    expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/c/' + task.conversation_id;
+                } else {
+                    expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/project';
+                }
+            } else {
+                if (task.conversation_id) {
+                    expectedPath = '/c/' + task.conversation_id;
+                } else {
+                    expectedPath = '/';
+                }
+            }
+
+            expectedPath += "?model=" + task.model;
+            await window.oairouter.navigate(expectedPath);
+            await pollUntil(() => window.location.href.endsWith(expectedPath));
+            await sleep(200); // js is async so changing the url doesn't immediately change the model
+
+            if (!task.conversation_id) {
+                await pollUntil(() => document.querySelector('button[aria-label="Search"]'));
+            }
+
+            if (expectedPath.includes("/c/")) {
+                await pollUntil(() => Array.from(document.querySelectorAll('div[data-message-id]')).length);
+            }
+
+            window.hpcrp = {...task.raw_payload, path_to_message: undefined};
+            window.hpcrpm = {...task.raw_payload, path_to_message: undefined};
+            window.hpcrp2 = {...task.raw_payload, path_to_message: undefined};
+            window.hpcrpxx = {...task.raw_payload, path_to_message: undefined};
+            window.hpmid = task.preferred_message_id;
+            delete_conversation_immediately_afterwards = task.raw_payload.delete_conversation_immediately_afterwards;
+            theAccessToken = task.raw_payload.theAccessToken;
+            delete task.raw_payload.delete_conversation_immediately_afterwards;
+            delete task.raw_payload.theAccessToken;
+
+            const mainRoutine = async function () {
+                const getSendButton = async () => await pollUntil(
+                    async () => {
+                        let textarea = document.querySelector('#prompt-textarea');
+                        const url = new URL(window.location.href);
+                        const ok = !!textarea && expectedPath.includes(url.pathname);
+                        if (!ok) {
+                            return false;
+                        }
+                        textarea.innerText = '...';
+                        return await pollUntil(() => {
+                            let element = document.querySelector('button[data-testid="send-button"]');
+                            if (!element) {
+                                return false;
+                            }
+                            if (element.getAttribute('aria-label') !== 'Send prompt') {
+                                return false;
+                            }
+                            return element;
+                        });
+                    }
+                );
+
+                let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
+                if (deepResearchBtn) {
+
+                    let deepResearchBtnPressed = deepResearchBtn.getAttribute('aria-pressed');
+                    if (deepResearchBtnPressed === 'false') {
+                        deepResearchBtnPressed = false;
+                    }
+                    if (deepResearchBtnPressed === 'true') {
+                        deepResearchBtnPressed = true;
+                    }
+                    if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
+                        if (!deepResearchBtnPressed) {
+                            deepResearchBtn.click();
+                            await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'true')
+                            await sleep(200);
+                        }
+                    } else {
+                        if (deepResearchBtnPressed) {
+                            deepResearchBtn.click();
+                            await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'false')
+                            await sleep(200);
+                        }
+                    }
+                }
+
+                let searchBtn = document.querySelector('button[aria-label="Search"]');
+                let searchBtnPressed = searchBtn.getAttribute('aria-pressed');
+                if (searchBtnPressed === 'false') {
+                    searchBtnPressed = false;
+                }
+                if (searchBtnPressed === 'true') {
+                    searchBtnPressed = true;
+                }
+                if (task.raw_payload.force_use_search) {
+                    if (!searchBtnPressed) {
+                        searchBtn.click();
+                        await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'true')
+                        await sleep(200);
+                    }
+                } else {
+                    if (searchBtnPressed) {
+                        searchBtn.click();
+                        await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'false')
+                        await sleep(200);
+                    }
+                }
+
+
+                await pollUntil(async () => {
+                    let sendButton = await getSendButton();
+                    if (sendButton.getAttribute('aria-label') === 'Send prompt') {
+                        sendButton.click();
+                        await sleep(100);
+                        return sendButton.getAttribute('aria-label') !== 'Send prompt';
+                    }
+                });
+            };
+
+            if (!isHighEffortMode()) {
+                await mainRoutine();
+                return true;
+            }
+
+            if (task.action === "variant") {
+                const parentMessage = await findParentMessage(task);
+                const messageToRegenerate = await pollUntil(() =>
+                    parentMessage.closest("article").nextSibling
+                );
+
+                if (!messageToRegenerate.innerText) {
+                    // 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
+                }
+
+                messageToRegenerate.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
+                const regenerateButton = await pollUntil(
+                    () => {
+                        const buttons = messageToRegenerate.querySelectorAll('div.items-center button');
+                        return buttons[buttons.length - 1];
+                    }
+                );
+
+                const tryAgainButton = await pollUntil(
+                    async () => {
+                        regenerateButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+                        await sleep(100);
+
+                        const buttons = (Array.from(document.querySelectorAll("div[role='menuitem']")) || []).filter(x => x.innerText.startsWith("Try again"));
+                        if (buttons && buttons.length > 0) {
+                            return buttons[0];
+                        }
+                        return false;
+                    }
+                );
+
+                tryAgainButton.click();
+
+                return true;
+            }
+
+            if (!task.raw_payload.conversation_id) {
+                // new conversation
+                await mainRoutine();
+            } else {
+                const x = async (b) => {
+                    b.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
+                    const editMessageBtn = await pollUntil(() => b.querySelector("button[aria-label='Edit message']"));
+                    editMessageBtn.click();
+                    const textArea = await pollUntil(() => b.querySelector('textarea'));
+                    textArea.value = '...';
+                    const sendButton = b.querySelector('button.btn-primary');
+                    sendButton.click();
+                };
+                const parentMessage = await findParentMessage(task);
+                if (parentMessage) {
+                    const b = parentMessage.closest("article").nextSibling;
+                    if (b && b.innerText && b.querySelector('div[data-message-id]')) {
+                        await x(b);
+                        return true;
+                    } else {
+                        await mainRoutine();
+                    }
+                } else {
+                    const b = document.querySelector('div[data-message-author-role="user"]').parentElement.parentElement.parentElement.parentElement.parentElement.parentElement;
+                    await x(b);
+                    return true;
+                }
+            }
+
+            return true;
+        }
+
+        try {
+            await doWork()
+        } catch (e) {
+            console.error(e);
+            setTimeout(destroy, 500);
+        }
+    });
+}
+
+
 if (isChatGPT()) {
 
-// set up network interception
+    // set up network interception
     (function setupInterception() {
         const originalFetch = window.fetch;
         window.originalFetch = originalFetch;
 
         window.fetch = async function (...args) {
             const url = args[0] instanceof Request ? args[0].url : args[0];
+
+            if (typeof url === 'string' && (url.includes('ces/statsc/flush') || url.includes('/ces/') || url.includes('/v1/rgstr') || url.includes('/backend-api/lat/r'))) {
+                return Promise.resolve(new Response('{}', {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                }));
+            }
 
             // Call the original fetch
             let originalResponse;
@@ -93,6 +390,7 @@ if (isChatGPT()) {
 
                             if (url.replace('backend-alt', 'backend-api') == "https://chatgpt.com/backend-api/conversation") {
                                 console.log("Done work");
+                                clearTimeout(workStuckTimeout);
                                 if (delete_conversation_immediately_afterwards) {
                                     if (window.location.href.includes("/c/")) {
                                         const conversationId = window.location.href.split("/").pop();
@@ -115,6 +413,7 @@ if (isChatGPT()) {
                                 }
                                 setTimeout(() => {
                                     destroy();
+                                    window.location.href = "/";
                                 }, 5000);
                             }
 
@@ -297,8 +596,6 @@ function showErrorToast(message, duration = 3000) {
 }
 
 
-let socket = null;
-
 whenReady(function () {
     // Function to inject CSS into the document head
     function injectCSS() {
@@ -382,298 +679,10 @@ whenReady(function () {
         return overlay;
     }
 
-    // Function to load a script dynamically
-    function loadScript(url, callback) {
-        const script = document.createElement("script");
-        script.type = "text/javascript";
-        script.src = url;
-        script.onload = callback;
-        document.head.appendChild(script);
-    }
-
     // Inject CSS and create the overlay
     injectCSS();
-    const overlay = createOverlay();
-    const workerIdDisplay = document.getElementById("workerIdDisplay").querySelector("span:last-child");
-    const statusText = document.getElementById("statusText");
-    const statusEmoji = document.getElementById("statusEmoji");
-
-    // Generate a unique workerId (using a simple random string generator)
-    workerIdDisplay.textContent = `ID: ${workerId}`;
-    statusText.textContent = "Connecting...";
-
-    // Load the Socket.io client library, then run the main logic
-    loadScript("https://cdn.oaistatic.com/socket.io.min.js", async function () {
-        const accountName = getAccountName();
-
-        // Create socket connection with the workerId as query param (without accountName initially)
-        socket = io("https://aaaaa.chatgpt.com/socketio", {
-            // transports: ['polling'],
-            query: {workerId},
-            auth: {
-                account: JSON.parse(localStorage.getItem('chatgptAccount')),
-            },
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            timeout: 5000,
-            pingTimeout: 60000,
-            pingInterval: 10000
-        });
-
-        // Update the account name display
-        document.getElementById("accountNameDisplay").textContent = accountName;
-
-        // On socket connection, update overlay
-        socket.on("connect", () => {
-            console.log("Socket connected for worker", workerId);
-            statusText.textContent = "Connected";
-            statusEmoji.textContent = "✅";
-            overlay.className = "connected";
-            isConnected = true;
-        });
-
-        // If the socket disconnects, destroy the worker
-        socket.on("disconnect", () => {
-            console.warn("Socket reconnect_failed; destroying worker.");
-            statusText.textContent = "Disconnected";
-            statusEmoji.textContent = "❌";
-            overlay.className = "disconnected";
-            setTimeout(destroy, 500);
-        });
-
-        socket.on("stopGeneration", async () => {
-            const stopButton = document.querySelector('button[aria-label="Stop streaming"]');
-            if (stopButton) {
-                stopButton.click();
-                setTimeout(() => {
-                    destroy();
-                }, 1000);
-            }
-        });
-
-        // When assigned work from the server
-        socket.on("assignWork", async (data) => {
-            console.log("Received work assignment:", data);
-
-            // Update status
-            statusText.textContent = "Working...";
-            statusEmoji.textContent = "⚡";
-            isWorking = true;
-
-            // Immediately acknowledge the work
-            socket.emit("ackWork");
-
-            setTimeout(() => {
-                destroy();
-            }, 30 * 60 * 1000); // it's impossible that work takes more than 30 minutes, if so it's stuck, and we should reload
-
-            const doWork = async () => {
-                const {task} = data;
-                await window.oairouter.navigate('/?model');
-                await pollUntil(() => window.location.href.endsWith("/?model"));
-
-                let expectedPath = '';
-                if (task.raw_payload.conversation_mode.kind === 'gizmo_interaction' && task.raw_payload.conversation_mode.gizmoId) {
-                    if (task.conversation_id) {
-                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/c/' + task.conversation_id;
-                    } else {
-                        expectedPath = '/g/' + task.raw_payload.conversation_mode.gizmoId + '/project';
-                    }
-                } else {
-                    if (task.conversation_id) {
-                        expectedPath = '/c/' + task.conversation_id;
-                    } else {
-                        expectedPath = '/';
-                    }
-                }
-
-                expectedPath += "?model=" + task.model;
-                await window.oairouter.navigate(expectedPath);
-                await pollUntil(() => window.location.href.endsWith(expectedPath));
-                await sleep(200); // js is async so changing the url doesn't immediately change the model
-
-                if (!task.conversation_id) {
-                    await pollUntil(() => document.querySelector('button[aria-label="Search"]'));
-                }
-
-                if (expectedPath.includes("/c/")) {
-                    await pollUntil(() => Array.from(document.querySelectorAll('div[data-message-id]')).length);
-                }
-
-                window.hpcrp = {...task.raw_payload, path_to_message: undefined};
-                window.hpcrpm = {...task.raw_payload, path_to_message: undefined};
-                window.hpcrp2 = {...task.raw_payload, path_to_message: undefined};
-                window.hpcrpxx = {...task.raw_payload, path_to_message: undefined};
-                window.hpmid = task.preferred_message_id;
-                delete_conversation_immediately_afterwards = task.raw_payload.delete_conversation_immediately_afterwards;
-                theAccessToken = task.raw_payload.theAccessToken;
-                delete task.raw_payload.delete_conversation_immediately_afterwards;
-                delete task.raw_payload.theAccessToken;
-
-                const mainRoutine = async function () {
-                    const getSendButton = async () => await pollUntil(
-                        async () => {
-                            let textarea = document.querySelector('#prompt-textarea');
-                            const url = new URL(window.location.href);
-                            const ok = !!textarea && expectedPath.includes(url.pathname);
-                            if (!ok) {
-                                return false;
-                            }
-                            textarea.innerText = '...';
-                            return await pollUntil(() => {
-                                let element = document.querySelector('button[data-testid="send-button"]');
-                                if (!element) {
-                                    return false;
-                                }
-                                if (element.getAttribute('aria-label') !== 'Send prompt') {
-                                    return false;
-                                }
-                                return element;
-                            });
-                        }
-                    );
-
-                    let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
-                    if (deepResearchBtn) {
-
-                        let deepResearchBtnPressed = deepResearchBtn.getAttribute('aria-pressed');
-                        if (deepResearchBtnPressed === 'false') {
-                            deepResearchBtnPressed = false;
-                        }
-                        if (deepResearchBtnPressed === 'true') {
-                            deepResearchBtnPressed = true;
-                        }
-                        if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
-                            if (!deepResearchBtnPressed) {
-                                deepResearchBtn.click();
-                                await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'true')
-                                await sleep(200);
-                            }
-                        } else {
-                            if (deepResearchBtnPressed) {
-                                deepResearchBtn.click();
-                                await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'false')
-                                await sleep(200);
-                            }
-                        }
-                    }
-
-                    let searchBtn = document.querySelector('button[aria-label="Search"]');
-                    let searchBtnPressed = searchBtn.getAttribute('aria-pressed');
-                    if (searchBtnPressed === 'false') {
-                        searchBtnPressed = false;
-                    }
-                    if (searchBtnPressed === 'true') {
-                        searchBtnPressed = true;
-                    }
-                    if (task.raw_payload.force_use_search) {
-                        if (!searchBtnPressed) {
-                            searchBtn.click();
-                            await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'true')
-                            await sleep(200);
-                        }
-                    } else {
-                        if (searchBtnPressed) {
-                            searchBtn.click();
-                            await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'false')
-                            await sleep(200);
-                        }
-                    }
-
-
-                    await pollUntil(async () => {
-                        let sendButton = await getSendButton();
-                        if (sendButton.getAttribute('aria-label') === 'Send prompt') {
-                            sendButton.click();
-                            await sleep(100);
-                            return sendButton.getAttribute('aria-label') !== 'Send prompt';
-                        }
-                    });
-                };
-
-                if (!isHighEffortMode()) {
-                    await mainRoutine();
-                    return true;
-                }
-
-                if (task.action === "variant") {
-                    const parentMessage = await findParentMessage(task);
-                    const messageToRegenerate = await pollUntil(() =>
-                        parentMessage.closest("article").nextSibling
-                    );
-
-                    if (!messageToRegenerate.innerText) {
-                        // 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
-                    }
-
-                    messageToRegenerate.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
-                    const regenerateButton = await pollUntil(
-                        () => {
-                            const buttons = messageToRegenerate.querySelectorAll('div.items-center button');
-                            return buttons[buttons.length - 1];
-                        }
-                    );
-
-                    const tryAgainButton = await pollUntil(
-                        async () => {
-                            regenerateButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
-                            await sleep(100);
-
-                            const buttons = (Array.from(document.querySelectorAll("div[role='menuitem']")) || []).filter(x => x.innerText.startsWith("Try again"));
-                            if (buttons && buttons.length > 0) {
-                                return buttons[0];
-                            }
-                            return false;
-                        }
-                    );
-
-                    tryAgainButton.click();
-
-                    return true;
-                }
-
-                if (!task.raw_payload.conversation_id) {
-                    // new conversation
-                    await mainRoutine();
-                } else {
-                    const x = async (b) => {
-                        b.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
-                        const editMessageBtn = await pollUntil(() => b.querySelector("button[aria-label='Edit message']"));
-                        editMessageBtn.click();
-                        const textArea = await pollUntil(() => b.querySelector('textarea'));
-                        textArea.value = '...';
-                        const sendButton = b.querySelector('button.btn-primary');
-                        sendButton.click();
-                    };
-                    const parentMessage = await findParentMessage(task);
-                    if (parentMessage) {
-                        const b = parentMessage.closest("article").nextSibling;
-                        if (b && b.innerText && b.querySelector('div[data-message-id]')) {
-                            await x(b);
-                            return true;
-                        } else {
-                            await mainRoutine();
-                        }
-                    } else {
-                        const b = document.querySelector('div[data-message-author-role="user"]').parentElement.parentElement.parentElement.parentElement.parentElement.parentElement;
-                        await x(b);
-                        return true;
-                    }
-                }
-
-                return true;
-            }
-
-            try {
-                await doWork()
-            } catch (e) {
-                console.error(e);
-                setTimeout(destroy, 500);
-            }
-        });
-    });
+    overlay = createOverlay();
+    init();
 });
 
 // Get account name from localStorage
@@ -693,25 +702,30 @@ function isHighEffortMode() {
     return JSON.parse(acc).highEffortMode;
 }
 
+function loadScript(url, callback) {
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src = url;
+    script.onload = callback;
+    document.head.appendChild(script);
+}
+
 function whenReady(callback) {
     const i = setInterval(() => {
         if (DOMReady && injectionIsReady() && window.oairouter && window.oairouter.navigate) {
             clearInterval(i);
-            callback();
+            loadScript("https://cdn.oaistatic.com/socket.io.min.js", async function () {
+                callback();
+            });
         }
     }, 50);
 }
 
 // Clean up function to destroy the worker
 function destroy() {
-    console.log(`Destroying worker ${workerId}...`);
-
-    if (socket && socket.connected) {
-        socket.disconnect();
-    }
-
     setTimeout(() => {
-        window.location.href = "/";
+        window.oairouter.navigate(`/?${+new Date()}`, {replace: true})
+        init();
     }, 500);
 }
 
