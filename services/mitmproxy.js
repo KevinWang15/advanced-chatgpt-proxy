@@ -462,15 +462,15 @@ function doReplacements(body, account) {
         {
             pattern: /let\{router:(.{1,5})}=(.{1,5})\("useNavigate"\)/g,
             replacement: 'let{router:$1}=$2("useNavigate"),xxx=(window.oairouter=(window.inj2=true)&&$1)'
-        }
+        },
+        {
+            pattern: /function (.{0,100}?)id:(.{0,100}?)\(\),author:(\w+),create_time/g,
+            replacement: 'window.inj3=true;function $1id:window.hpmid?(function(){var id=window.hpmid;window.hpmid=null;return id;})():$2(),author:$3,create_time'
+        },
     ];
 
     if (account.highEffortMode) {
         replacements.push(
-            {
-                pattern: /function (.{0,100}?)id:(.{0,100}?)\(\),author:(\w+),create_time/g,
-                replacement: 'window.inj3=true;function $1id:window.hpmid?(function(){var id=window.hpmid;window.hpmid=null;return id;})():$2(),author:$3,create_time'
-            },
             {
                 pattern: /function (.+?),content:typeof (.)==(.+?)metadata:/g,
                 replacement: 'window.inj4=true;function $1,content:window.hpcrp?(function(){let a=window.hpcrp.messages[0].content;window.hpcrp=null;return a;})():typeof $2==$3metadata:window.hpcrpm?(function(){let a=window.hpcrpm.messages[0].metadata;window.hpcrpm=null;return a;})():'
