@@ -704,7 +704,7 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                 );
 
                 if (
-                    req.method === 'GET'
+                    req.method === 'GET' && req.url.indexOf("/backend-api/") < 0
                 ) {
                     modifiedContent = modifiedContent.replace(
                         '</head>',
