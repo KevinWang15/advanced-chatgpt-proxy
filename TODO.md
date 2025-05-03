@@ -1,19 +1,15 @@
 # TODO
 
-* 稳定性 还需要 加强
-  * o1pro 重试 还是不稳
-  * 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
-
-
----
-
-* 限流聊天记录，聊天记录要能够帮用户存一份 (前端每隔10秒问一下服务器某个conversation最新的message id，如果mismatch就下载一份全量发送给服务器)
+* 聊天记录，聊天记录要能够帮用户存一份
   * delete_conversation_immediately_afterwards 相反的，要trigger get full conversation
   * network当中拦截这个请求，更新数据库
   * reverse proxy当中，list则直接返回列表
   * reverse proxy当中，get则判断号是否是同一个号，如果是则live获取，不是则返回缓存值
   * handle_conversation中，去掉not authorized，而是判断号是否一致，如果不一致，报错
-  * 
+* 限流
+  * 每个账号添加quota，按照积分来
+  * 积分每30分钟涨，每次请求扣除
+  * 前端显示quota
 * 网关模式, 动态路由优选
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
 * advanced voice mode
