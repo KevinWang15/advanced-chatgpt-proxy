@@ -399,35 +399,42 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                     parsedUrl.pathname === '/backend-alt/conversation')
             ) {
                 const conversationId = JSON.parse(requestBodyBuffer).conversation_id;
+                if (conversationId) {
 
-                const {PrismaClient} = require('@prisma/client');
-                const prisma = new PrismaClient();
-                const userAccessToken = req.cookies?.access_token;
+                    const {PrismaClient} = require('@prisma/client');
+                    const prisma = new PrismaClient();
+                    const userAccessToken = req.cookies?.access_token;
 
-                // Check if we have this conversation in our database for this user
-                const conversation = await prisma.conversation.findFirst({
-                    where: {
-                        id: conversationId,
-                        userAccessToken: userAccessToken
-                    }
-                });
+                    // Check if we have this conversation in our database for this user
+                    const conversation = await prisma.conversation.findFirst({
+                        where: {
+                            id: conversationId,
+                            userAccessToken: userAccessToken
+                        }
+                    });
 
-                if (conversation) {
-                    // If the conversation is found, check if the account is the same as the current selected account
-                    const isCurrentAccount = conversation.accountName === selectedAccount.name;
+                    if (conversation) {
+                        // If the conversation is found, check if the account is the same as the current selected account
+                        const isCurrentAccount = conversation.accountName === selectedAccount.name;
 
-                    if (isCurrentAccount) {
+                        if (isCurrentAccount) {
+                            return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
+                                doWork,
+                                selectedAccount
+                            });
+                        } else {
+                            res.writeHead(400, {'Content-Type': 'application/json'});
+                            return res.end(
+                                JSON.stringify({
+                                    error: `this request belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
+                                })
+                            );
+                        }
+                    } else {
                         return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
                             doWork,
                             selectedAccount
                         });
-                    } else {
-                        res.writeHead(400, {'Content-Type': 'application/json'});
-                        return res.end(
-                            JSON.stringify({
-                                error: `this request belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
-                            })
-                        );
                     }
                 } else {
                     return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
