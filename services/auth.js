@@ -3,7 +3,7 @@ const path = require('path');
 const {v4: uuidv4} = require('uuid');
 const axios = require('axios');
 const config = require(path.join(__dirname, "..", process.env.CONFIG || "config.centralserver.js"));
-const { PrismaClient } = require('@prisma/client');
+const {PrismaClient} = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const internalAuthenticationToken = uuidv4();
@@ -80,17 +80,18 @@ async function getTokenInfo(token) {
  * @param {string} token - The token of the managed user
  * @param {string} operation - The operation being performed (e.g., 'conversation_start', 'conversation_access')
  * @param {object} data - Data related to the operation
+ * @param {object} headers - Optional headers to include in the request
  * @returns {Promise<{allowed: boolean, reason?: string}>} - Whether the operation is allowed and optional reason
  */
-async function callWebhook(token, operation, data) {
+async function callWebhook(token, operation, data, headers) {
     try {
         const tokenInfo = await getTokenInfo(token);
-        
+
         // If not a managed user or no webhook URL, default to allowed
         if (!tokenInfo || !tokenInfo.isManaged || !tokenInfo.webhookUrl) {
-            return { allowed: true };
+            return {allowed: true};
         }
-        
+
         // Call the webhook URL
         const response = await axios.post(tokenInfo.webhookUrl, {
             token: token,
@@ -99,11 +100,12 @@ async function callWebhook(token, operation, data) {
             data: data
         }, {
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...(headers || {})
             },
             timeout: 5000 // 5 second timeout
         });
-        
+
         // Check if the operation is allowed
         if (response.data && typeof response.data.allowed === 'boolean') {
             return {
@@ -111,13 +113,13 @@ async function callWebhook(token, operation, data) {
                 reason: response.data.reason || null
             };
         }
-        
+
         // Default to allowed if the response doesn't include an 'allowed' field
-        return { allowed: true };
+        return {allowed: true};
     } catch (error) {
         console.error(`Error calling webhook for token ${token.substring(0, 8)}...: ${error.message}`);
         // Default to allowed if the webhook call fails
-        return { allowed: false, reason: 'Webhook call failed' };
+        return {allowed: false, reason: 'Webhook call failed'};
     }
 }
 
@@ -129,7 +131,7 @@ async function checkConversationAccess(conversationId, token, requiredAccessType
     if (process.env.NO_CONVERSATION_ISOLATION) {
         return true;
     }
-    
+
     if (!token || !conversationId) {
         return false;
     }
@@ -253,7 +255,7 @@ async function checkGizmoAccess(gizmoId, token, requiredAccessType = null) {
     if (process.env.NO_GIZMO_ISOLATION) {
         return true;
     }
-    
+
     if (!token || !gizmoId) {
         return false;
     }

@@ -918,25 +918,27 @@ function handleConversation(req, res, {doWork, selectedAccount}) {
                 raw_payload: payload
             };
 
-            if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
-                res.writeHead(400, {'Content-Type': 'application/json'});
-                return res.end(
-                    JSON.stringify({
-                        error: 'Invalid request, please copy your prompt, refresh the page, and send again'
-                    })
-                );
-            }
+            // if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
+            //     res.writeHead(400, {'Content-Type': 'application/json'});
+            //     return res.end(
+            //         JSON.stringify({
+            //             error: 'Invalid request, please copy your prompt, refresh the page, and send again'
+            //         })
+            //     );
+            // }
 
             // Check with webhook for managed users
             const token = req.cookies?.access_token;
             if (token) {
-                const webhookResult = await callWebhook(token, 'conversation_start', {
-                    action: task.action,
-                    model: model,
-                    question: userMessage,
-                    conversation_id: conversationId || null,
-                    language: (req.cookies?.['oai-locale'] || "en-US").split('-')[0],
-                });
+                const webhookResult = await callWebhook(token, 'conversation_start',
+                    {
+                        action: task.action,
+                        model: model,
+                        question: userMessage,
+                        conversation_id: conversationId || null,
+                    },
+                    {"accept-language": (req.cookies?.['oai-locale'] || "en-US")}
+                );
 
                 if (!webhookResult.allowed) {
                     res.writeHead(403, {'Content-Type': 'application/json'});
