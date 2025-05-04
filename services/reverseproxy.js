@@ -934,7 +934,8 @@ function handleConversation(req, res, {doWork, selectedAccount}) {
                     action: task.action,
                     model: model,
                     question: userMessage,
-                    conversation_id: conversationId || null
+                    conversation_id: conversationId || null,
+                    language: (req.cookies?.['oai-locale'] || "en-US").split('-')[0],
                 });
 
                 if (!webhookResult.allowed) {
