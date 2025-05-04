@@ -255,6 +255,9 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
 
                 await prisma.$disconnect();
                 console.log(`Conversation ${conversationId} saved to database`);
+                if (mapUserTokenToPendingNewConversation[req.cookies?.access_token] && mapUserTokenToPendingNewConversation[req.cookies?.access_token].conversationId === conversationId) {
+                    delete mapUserTokenToPendingNewConversation[req.cookies?.access_token];
+                }
             } catch (error) {
                 console.error(`Error saving conversation: ${error.message}`);
             }

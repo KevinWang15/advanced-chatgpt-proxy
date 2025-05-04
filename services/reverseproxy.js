@@ -426,7 +426,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                             res.writeHead(400, {'Content-Type': 'application/json'});
                             return res.end(
                                 JSON.stringify({
-                                    error: `this request belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
+                                    error: `this conversation belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
                                 })
                             );
                         }
