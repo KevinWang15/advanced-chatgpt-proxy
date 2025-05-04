@@ -19,15 +19,20 @@ const {
     workers,
     accounts,
     purgeWorker,
+    mapUserTokenToPendingNewConversation,
 } = require("./state/state");
 const path = require("path");
 const config = require(path.join(__dirname, process.env.CONFIG));
 const {
     accountStatusMap,
     handleMetrics,
-    performDegradationCheckForAccount, scheduleInitialCheckForAccount,
+    performDegradationCheckForAccount,
 } = require("./degradation");
 const {startAdminConsole} = require("./admin/main");
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 
 // Determine if this is a central server or a worker
@@ -188,6 +193,10 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
         const handleAck = () => {
             console.log(`Worker ${workerId} acknowledged work.`);
 
+            mapUserTokenToPendingNewConversation[req.cookies?.access_token] = {
+                startTime: Date.now(),
+                conversationId: null
+            };
             // Clear the ack timeout
             clearTimeout(ackTimeout);
         };
@@ -214,7 +223,41 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
             } catch (e) {
                 console.warn(e);
             }
+        });
 
+        socket.once("updateConversation", async (conversationData) => {
+            try {
+                const {conversationId} = conversationData;
+                if (!conversationId) {
+                    console.warn("Received updateConversation without conversationId");
+                    return;
+                }
+
+                const {PrismaClient} = require('@prisma/client');
+                const prisma = new PrismaClient();
+
+                await prisma.conversation.upsert({
+                    where: {
+                        id: conversationId
+                    },
+                    update: {
+                        accountName: selectedAccount.name,
+                        userAccessToken: req.cookies?.access_token,
+                        conversationData: conversationData.data
+                    },
+                    create: {
+                        id: conversationId,
+                        accountName: selectedAccount.name,
+                        userAccessToken: req.cookies?.access_token,
+                        conversationData: conversationData.data
+                    }
+                });
+
+                await prisma.$disconnect();
+                console.log(`Conversation ${conversationId} saved to database`);
+            } catch (error) {
+                console.error(`Error saving conversation: ${error.message}`);
+            }
         });
 
         // Send the assignment
@@ -250,12 +293,12 @@ function handleNetwork(data, socket) {
             workers[workerId].responseWriter.end();
         } else {
             // Extract conversation ID if present and add access
-            // TODO: security vulnerability here
+            // TODO: security vulnerability here; insufficiency here
             if (text.indexOf('"conversation_id": "') >= 0) {
                 try {
                     const conversationId = text.match(/"conversation_id":\s*"([a-f0-9-]+)"/)[1];
                     addConversationAccess(conversationId, workers[workerId].userAccessToken);
-
+                    mapUserTokenToPendingNewConversation[workers[workerId].userAccessToken].conversationId = conversationId;
 
                     StopGenerationCallback[conversationId] = () => {
                         socket.emit("stopGeneration");

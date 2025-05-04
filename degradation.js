@@ -219,7 +219,6 @@ async function checkDegradation(account) {
             paragen_cot_summary_display_override: 'allow',
             path_to_message: [],
             delete_conversation_immediately_afterwards: true,
-            theAccessToken: account.accessToken,
         },
         responseType: 'stream',
         timeout: 10000 // Overall request timeout

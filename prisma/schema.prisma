@@ -40,3 +40,16 @@ model GizmoAccess {
   @@id([token, gizmoId])
   @@map("gizmo_access")
 }
+
+model Conversation {
+  id              String   @id @map("conversation_id")
+  accountName     String   @map("account_name")
+  userAccessToken String?  @map("user_access_token") 
+  conversationData Json?   @map("conversation_data")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([accountName])
+  @@index([userAccessToken])
+  @@map("conversations")
+}

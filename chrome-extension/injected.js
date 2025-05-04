@@ -2,7 +2,6 @@ let workerId;
 let isWorking = false;
 let isConnected = false;
 let delete_conversation_immediately_afterwards = false;
-let theAccessToken = "";
 let overlay = null;
 let socket = null;
 let workStuckTimeout = null;
@@ -28,7 +27,6 @@ async function init() {
     isWorking = false;
     isConnected = false;
     delete_conversation_immediately_afterwards = false;
-    theAccessToken = "";
     workStuckTimeout = null;
 
 
@@ -146,9 +144,7 @@ async function init() {
             window.hpcrpxx = {...task.raw_payload, path_to_message: undefined};
             window.hpmid = task.preferred_message_id;
             delete_conversation_immediately_afterwards = task.raw_payload.delete_conversation_immediately_afterwards;
-            theAccessToken = task.raw_payload.theAccessToken;
             delete task.raw_payload.delete_conversation_immediately_afterwards;
-            delete task.raw_payload.theAccessToken;
 
             const mainRoutine = async function () {
                 const getSendButton = async () => await pollUntil(
@@ -391,30 +387,47 @@ if (isChatGPT()) {
                             if (url.replace('backend-alt', 'backend-api') == "https://chatgpt.com/backend-api/conversation") {
                                 console.log("Done work");
                                 clearTimeout(workStuckTimeout);
-                                if (delete_conversation_immediately_afterwards) {
-                                    if (window.location.href.includes("/c/")) {
-                                        const conversationId = window.location.href.split("/").pop();
-                                        fetch("https://chatgpt.com/backend-api/conversation/" + conversationId, {
-                                            "headers": {
-                                                "accept": "*/*",
-                                                "authorization": "Bearer " + theAccessToken,
-                                                "content-type": "application/json",
-                                            },
-                                            "body": "{\"is_visible\":false}",
-                                            "method": "PATCH",
-                                            "mode": "cors",
-                                            "credentials": "include"
-                                        })
 
-                                        await new Promise((resolve) => {
-                                            setTimeout(resolve, 1000)
-                                        });
+                                await (async function () {
+                                    if (window.location.href.includes("/c/")) {
+                                        const conversationId = window.location.href.split("/").pop().split('?')[0];
+
+                                        if (delete_conversation_immediately_afterwards) {
+                                            fetch("https://chatgpt.com/backend-api/conversation/" + conversationId, {
+                                                "headers": {
+                                                    "accept": "*/*",
+                                                    "authorization": "Bearer " + JSON.parse(localStorage['chatgptAccount']).accessToken,
+                                                    "content-type": "application/json",
+                                                },
+                                                "body": "{\"is_visible\":false}",
+                                                "method": "PATCH",
+                                                "mode": "cors",
+                                                "credentials": "include"
+                                            })
+                                        } else {
+                                            const resp = await fetch("https://chatgpt.com/backend-api/conversation/" + conversationId, {
+                                                "headers": {
+                                                    "accept": "*/*",
+                                                    "authorization": "Bearer " + JSON.parse(localStorage['chatgptAccount']).accessToken,
+                                                    "content-type": "application/json",
+                                                },
+                                                "method": "GET",
+                                                "mode": "cors",
+                                                "credentials": "include"
+                                            });
+                                            const data = await resp.json();
+                                            socket.emit('updateConversation', {
+                                                conversationId,
+                                                data,
+                                            });
+                                        }
                                     }
-                                }
-                                setTimeout(() => {
+
+
+                                    await sleep(5000);
                                     destroy();
                                     window.location.href = "/";
-                                }, 5000);
+                                })()
                             }
 
                         } catch (error) {

@@ -13,6 +13,9 @@ const workers = {};
 
 const accounts = {};
 
+// TODO: code quality is abysmal, refactor this
+const mapUserTokenToPendingNewConversation = {};
+
 // Get all accounts based on connected workers
 const getAllAccounts = () => {
     return Object.values(accounts);
@@ -40,4 +43,5 @@ module.exports = {
     accounts,
     getAllAccounts,
     purgeWorker,
+    mapUserTokenToPendingNewConversation
 };

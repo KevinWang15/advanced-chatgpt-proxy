@@ -37,7 +37,8 @@ const {
 
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require('../consts');
 const {HttpsProxyAgent} = require("https-proxy-agent");
-const {workers, getAllAccounts} = require("../state/state");
+const {workers, getAllAccounts, mapUserTokenToPendingNewConversation} = require("../state/state");
+const {PrismaClient} = require("@prisma/client");
 
 const mimeTypes = {
     '.js': 'application/javascript',
@@ -381,6 +382,15 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 return handleRobotsTxt(req, res);
             }
 
+            const {targetHost, targetPath} = determineTarget(req.url);
+
+            // We must gather request body as a buffer
+            const requestChunks = [];
+            for await (const chunk of req) {
+                requestChunks.push(chunk);
+            }
+            const requestBodyBuffer = Buffer.concat(requestChunks);
+
             // 6) conversation streaming
             //    (both /backend-api/conversation and /backend-alt/conversation)
             if (
@@ -388,11 +398,45 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 (parsedUrl.pathname === '/backend-api/conversation' ||
                     parsedUrl.pathname === '/backend-alt/conversation')
             ) {
-                return handleConversation(req, res, {doWork, selectedAccount});
+                const conversationId = JSON.parse(requestBodyBuffer).conversation_id;
+
+                const {PrismaClient} = require('@prisma/client');
+                const prisma = new PrismaClient();
+                const userAccessToken = req.cookies?.access_token;
+
+                // Check if we have this conversation in our database for this user
+                const conversation = await prisma.conversation.findFirst({
+                    where: {
+                        id: conversationId,
+                        userAccessToken: userAccessToken
+                    }
+                });
+
+                if (conversation) {
+                    // If the conversation is found, check if the account is the same as the current selected account
+                    const isCurrentAccount = conversation.accountName === selectedAccount.name;
+
+                    if (isCurrentAccount) {
+                        return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
+                            doWork,
+                            selectedAccount
+                        });
+                    } else {
+                        res.writeHead(400, {'Content-Type': 'application/json'});
+                        return res.end(
+                            JSON.stringify({
+                                error: `this request belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
+                            })
+                        );
+                    }
+                } else {
+                    return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
+                        doWork,
+                        selectedAccount
+                    });
+                }
             }
 
-            // If not handled yet, this is a normal request that we pass to the proxy logic
-            const {targetHost, targetPath} = determineTarget(req.url);
 
             if (shouldMockSuccess(targetHost, targetPath)) {
                 // Return the mock success JSON
@@ -404,10 +448,325 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 return res.end(JSON.stringify({success: true}));
             }
 
+            if (targetPath.startsWith('/backend-api/conversation/') &&
+                !targetPath.split('?')[0].endsWith('generate_autocompletions') &&
+                !targetPath.split('?')[0].endsWith('download') &&
+                !targetPath.split('?')[0].endsWith('init') &&
+                !targetPath.split('?')[0].endsWith('search')
+            ) {
+                const conversationId = targetPath.split('conversation/')[1].split('/')[0].split('?')[0];
+
+                if (req.headers['x-internal-authentication'] === getInternalAuthenticationToken()) {
+                    // allow internal authentication
+                } else {
+
+                    const userIdentity = req.cookies?.access_token;
+                    if (!userIdentity) {
+                        res.writeHead(401, {'Content-Type': 'application/json'});
+                        return res.end(JSON.stringify({error: 'User identity not provided'}));
+                    }
+
+                    const hasAccess =
+                        targetPath.includes('conversation/init') ||
+                        targetPath.includes('conversation/voice') ||
+                        targetPath.endsWith('/textdocs') ||
+                        (await checkConversationAccess(conversationId, userIdentity));
+
+                    if (!hasAccess) {
+                        res.writeHead(401, {'Content-Type': 'application/json'});
+                        return res.end(JSON.stringify({error: 'not authorized'}));
+                    }
+                }
+
+                if (req.method === "GET") {
+                    const {PrismaClient} = require('@prisma/client');
+                    const prisma = new PrismaClient();
+                    const userAccessToken = req.cookies?.access_token;
+
+                    // Check if we have this conversation in our database for this user
+                    const conversation = await prisma.conversation.findFirst({
+                        where: {
+                            id: conversationId,
+                            userAccessToken: userAccessToken
+                        }
+                    });
+
+                    if (conversation) {
+                        // If the conversation is found, check if the account is the same as the current selected account
+                        const isCurrentAccount = conversation.accountName === selectedAccount.name;
+
+                        // If not from the current account
+                        if (!isCurrentAccount) {
+                            console.log(`Retrieving conversation ${conversationId} from database cache. Current account: ${isCurrentAccount ? 'yes' : 'no'}`);
+
+                            if (conversation.conversationData) {
+                                await prisma.$disconnect();
+
+                                res.writeHead(200, {
+                                    'Content-Type': 'application/json',
+                                    'access-control-allow-origin': config.centralServer.url
+                                });
+
+                                // Return the conversation data from the database
+                                return res.end(JSON.stringify(conversation.conversationData));
+                            }
+                        } else {
+                            console.log(`Live retrieving conversation ${conversationId} from account ${selectedAccount.name}`);
+                            // If it's the current account and we don't have sufficient data, let it live retrieve
+                        }
+                    }
+
+                    await prisma.$disconnect();
+                    // Continue with normal flow to proxy to ChatGPT
+
+                }
+
+            }
+
+            // Handle search endpoint specifically
+            if (targetPath.split('?')[0] === '/backend-api/conversations/search') {
+                // Handle dedicated search endpoint
+                if (req.method === 'GET') {
+                    const {PrismaClient} = require('@prisma/client');
+                    const prisma = new PrismaClient();
+                    const userAccessToken = req.cookies?.access_token;
+
+                    try {
+                        // Parse query parameters
+                        const parsedUrl = url.parse(req.url, true);
+                        const searchQuery = parsedUrl.query.query || '';
+
+                        // Search results limited to 10 as requested
+                        const limit = 10;
+
+                        // Build search conditions
+                        let whereClause = {
+                            userAccessToken: userAccessToken
+                        };
+
+                        // Add search condition
+                        if (searchQuery) {
+                            // Simplify the search approach to avoid JSON path errors
+                            // Just check if the entire JSON string contains the search query
+                            const searchPattern = `%${searchQuery}%`;
+
+                            // Use raw SQL condition
+                            whereClause = {
+                                userAccessToken: userAccessToken,
+                                conversationData: {
+                                    not: null
+                                }
+                            };
+                        }
+
+                        // Get search results
+                        const conversations = await prisma.conversation.findMany({
+                            where: whereClause,
+                            orderBy: {
+                                updatedAt: 'desc'
+                            },
+                            take: limit
+                        });
+
+                        // Manually filter the results to match search query
+                        // since we couldn't use the JSON path in where clause
+                        const filteredConversations = searchQuery
+                            ? conversations.filter(conv => {
+                                if (!conv.conversationData) return false;
+
+                                // Check for the title first if it exists
+                                if (conv.conversationData.data &&
+                                    conv.conversationData.data.title &&
+                                    conv.conversationData.data.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+                                    return true;
+                                }
+
+                                // Fall back to checking the entire JSON string
+                                return JSON.stringify(conv.conversationData).toLowerCase().includes(searchQuery.toLowerCase());
+                            })
+                            : conversations;
+
+                        // The total count needs to match our filtered results
+                        const total = filteredConversations.length;
+
+                        // Format results specifically for search endpoint
+                        const items = filteredConversations.map(conv => {
+                            // Extract title
+                            let title = "New chat";
+                            if (conv.conversationData && typeof conv.conversationData === 'object') {
+                                if (conv.conversationData.data && conv.conversationData.data.title) {
+                                    title = conv.conversationData.data.title;
+                                }
+                            }
+
+                            return {
+                                conversation_id: conv.id,
+                                current_node_id: '', // TODO, improve search
+                                title: title,
+                                payload: {
+                                    kind: "message",
+                                    message_id: '', // TODO, improve search
+                                    snippet: ''
+                                },
+                                create_time: +conv.createdAt / 1000,
+                                update_time: +conv.updatedAt / 1000,
+                            };
+                        });
+
+                        const response = {
+                            items: items,
+                            total: total,
+                            limit: limit,
+                            offset: 0
+                        };
+
+                        await prisma.$disconnect();
+
+                        // Send search results
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'access-control-allow-origin': config.centralServer.url
+                        });
+                        return res.end(JSON.stringify(response));
+                    } catch (error) {
+                        console.error('Error executing search:', error);
+                        await prisma.$disconnect();
+
+                        // Return empty results on error
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'access-control-allow-origin': config.centralServer.url
+                        });
+                        return res.end(JSON.stringify({
+                            items: [],
+                            total: 0,
+                            limit: 10,
+                            offset: 0
+                        }));
+                    }
+                }
+                return; // Don't continue to the regular conversations handler
+            }
+
+            // Get conversations from database (regular list)
+            if (targetPath.split('?')[0] === '/backend-api/conversations') {
+                // Use the saved conversations from our database instead of proxying to ChatGPT
+                if (req.method === 'GET') {
+                    const {PrismaClient} = require('@prisma/client');
+                    const prisma = new PrismaClient();
+                    const userAccessToken = req.cookies?.access_token;
+
+                    // Parse query parameters
+                    const parsedUrl = url.parse(req.url, true);
+                    const offset = parseInt(parsedUrl.query.offset) || 0;
+                    const limit = parseInt(parsedUrl.query.limit) || 28;
+                    const order = parsedUrl.query.order || 'updated';
+
+                    // Regular listing conditions
+                    const whereClause = {
+                        userAccessToken: userAccessToken
+                    };
+
+                    // Query conversations from our database
+                    const conversations = await prisma.conversation.findMany({
+                        where: whereClause,
+                        orderBy: {
+                            updatedAt: order.includes('updated') ? 'desc' : 'asc'
+                        },
+                        skip: offset,
+                        take: limit
+                    });
+
+                    // Get total count with same search conditions
+                    let total = await prisma.conversation.count({
+                        where: whereClause
+                    });
+
+                    const startTime = +new Date();
+                    if (mapUserTokenToPendingNewConversation[userAccessToken] && (+new Date() - mapUserTokenToPendingNewConversation[userAccessToken].startTime > 60000)) {
+                        delete mapUserTokenToPendingNewConversation[userAccessToken];
+                    }
+                    while (true) {
+                        if (mapUserTokenToPendingNewConversation[userAccessToken] && !mapUserTokenToPendingNewConversation[userAccessToken].conversationId && +new Date() - startTime < 10000) {
+                            await sleep(100);
+                        } else {
+                            break;
+                        }
+                    }
+
+
+                    // Format response to match the expected structure
+                    const items = conversations.map(conv => {
+                        // Extract title from conversation data if available
+                        let title = "-";
+                        if (conv.conversationData && typeof conv.conversationData === 'object') {
+                            if (conv.conversationData && conv.conversationData.title) {
+                                title = conv.conversationData.title;
+                            }
+                        }
+
+                        return {
+                            id: conv.id,
+                            title: title,
+                            create_time: conv.createdAt.toISOString(),
+                            update_time: conv.updatedAt.toISOString(),
+                            mapping: null,
+                            current_node: null,
+                            conversation_template_id: null,
+                            gizmo_id: null,
+                            is_archived: false,
+                            is_starred: null,
+                            is_do_not_remember: null,
+                            workspace_id: null,
+                            async_status: null,
+                            safe_urls: [],
+                            blocked_urls: [],
+                            conversation_origin: null,
+                            snippet: null
+                        };
+                    });
+
+
+                    if (offset === 0) {
+                        const conversationIdToEnsure = mapUserTokenToPendingNewConversation[userAccessToken] ? mapUserTokenToPendingNewConversation[userAccessToken].conversationId : null;
+
+                        if (conversationIdToEnsure && !conversations.some(c => c.id === conversationIdToEnsure)) {
+                            items.unshift({
+                                id: conversationIdToEnsure,
+                                title: "New chat",
+                                create_time: (new Date()).toISOString(),
+                                update_time: (new Date()).toISOString(),
+                            });
+                            if (items.length > limit) {
+                                items.pop();
+                            }
+                            total += 1;
+                        }
+                    }
+
+                    const response = {
+                        items: items,
+                        total: total,
+                        limit: limit,
+                        offset: offset
+                    };
+
+                    await prisma.$disconnect();
+
+                    // Send response
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'access-control-allow-origin': config.centralServer.url
+                    });
+                    return res.end(JSON.stringify(response));
+
+                }
+            }
+
             // Finally, pass everything else to standard proxy
-            await proxyRequest(req, res, targetHost, targetPath, selectedAccount);
+            await proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer, selectedAccount);
         } catch (err) {
-            logger.error(`Error in fallback route: ${err.message}`);
+            logger.error(err);
             if (!res.headersSent) {
                 res.writeHead(500, {'Content-Type': 'application/json'});
                 res.end(JSON.stringify({error: 'Internal server error'}));
@@ -537,7 +896,7 @@ function getHttpsProxyAgent(selectedAccount) {
 /**
  * The main proxy handler
  */
-async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
+async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer, selectedAccount) {
     try {
         // Prepare headers for the outgoing request
         const headers = {...req.headers};
@@ -571,13 +930,6 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
 
         // Determine if this is a streaming request
         const isStreamRequest = targetPath.includes('/stream');
-
-        // We must gather request body as a buffer
-        const requestChunks = [];
-        for await (const chunk of req) {
-            requestChunks.push(chunk);
-        }
-        const requestBodyBuffer = Buffer.concat(requestChunks);
 
         const axiosConfig = {
             method: req.method,
@@ -739,55 +1091,44 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                 }
 
                 if (
+                    req.method === 'PATCH' &&
                     targetPath.startsWith('/backend-api/conversation/') &&
-                    !targetPath.endsWith('generate_autocompletions') &&
-                    !targetPath.endsWith('download')
+                    !targetPath.split('?')[0].endsWith('generate_autocompletions') &&
+                    !targetPath.split('?')[0].endsWith('download') &&
+                    !targetPath.split('?')[0].endsWith('init') &&
+                    !targetPath.split('?')[0].endsWith('search')
                 ) {
                     const conversationId = targetPath.split('/conversation/')[1].split('/')[0];
-                    if (req.headers['x-internal-authentication'] === getInternalAuthenticationToken()) {
-                        // allow internal authentication
-                    } else {
-                        const userIdentity = req.cookies?.access_token;
-                        if (!userIdentity) {
-                            res.writeHead(401, {'Content-Type': 'application/json'});
-                            return res.end(JSON.stringify({error: 'User identity not provided'}));
-                        }
+                    let parsed = JSON.parse(requestBodyBuffer.toString());
+                    if (parsed.title) {
+                        const {PrismaClient} = require('@prisma/client');
+                        const prisma = new PrismaClient();
+                        const conversation = await prisma.conversation.findFirst({
+                            where: {
+                                id: conversationId,
+                            }
+                        });
 
-                        const hasAccess =
-                            targetPath.includes('conversation/init') ||
-                            targetPath.includes('conversation/voice') ||
-                            (await checkConversationAccess(conversationId, userIdentity));
+                        conversation.conversationData.title = parsed.title;
 
-                        if (!hasAccess) {
-                            res.writeHead(401, {'Content-Type': 'application/json'});
-                            return res.end(JSON.stringify({error: 'not authorized'}));
-                        }
+                        await prisma.conversation.update({
+                            where: {
+                                id: conversationId,
+                            },
+                            data: {
+                                conversationData: conversation.conversationData,
+                            }
+                        });
                     }
-                }
-
-                // Filter user conversations
-                if (targetPath.startsWith('/backend-api/conversations')) {
-                    const userConversations = await listUserConversations(req.cookies?.access_token);
-                    const ids = {};
-                    for (let uc of userConversations) {
-                        ids[uc.conversationId] = true;
+                    if (parsed.is_visible === false) {
+                        const {PrismaClient} = require('@prisma/client');
+                        const prisma = new PrismaClient();
+                        await prisma.conversation.delete({
+                            where: {
+                                id: conversationId,
+                            }
+                        });
                     }
-
-                    let parsed = JSON.parse(modifiedContent);
-
-                    if (!process.env.NO_CONVERSATION_ISOLATION) {
-                        if (targetPath.includes('/search?')) {
-                            parsed.items = parsed.items.filter((item) => !!ids[item.conversationId]);
-                        } else {
-                            parsed.items.forEach((item) => {
-                                if (!ids[item.id]) {
-                                    item.title = '🔐 NOT AUTHORIZED';
-                                    // item.id = '00000000-0000-0000-0000-000000000000'; // don't do this for now or else ChatGPT UI will bug
-                                }
-                            });
-                        }
-                    }
-                    modifiedContent = JSON.stringify(parsed);
                 }
 
                 if (targetPath.startsWith('/backend-api/gizmos/snorlax/sidebar')) {
@@ -800,20 +1141,6 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
                     let parsed = JSON.parse(modifiedContent);
 
                     if (!process.env.NO_CONVERSATION_ISOLATION) {
-                        // parsed.items.forEach((item) => {
-                        //     if (!ids[item.gizmo.gizmo.id]) {
-                        //         item.gizmo = {
-                        //             files: [],
-                        //             gizmo: {
-                        //                 id: '00000000-0000-0000-0000-000000000000',
-                        //                 display: {
-                        //                     name: '🔐 NOT AUTHORIZED',
-                        //                 },
-                        //             }
-                        //         };
-                        //     }
-                        // });
-
                         parsed.items = parsed.items.filter((item) => !!ids[item.gizmo.gizmo.id]);
                     }
                     modifiedContent = JSON.stringify(parsed);
@@ -870,111 +1197,116 @@ async function proxyRequest(req, res, targetHost, targetPath, selectedAccount) {
 /**
  * Streaming conversation requests
  */
-function handleConversation(req, res, {doWork, selectedAccount}) {
+async function handleConversation(req, res, payload, {doWork, selectedAccount}) {
     logger.info('Handling streaming conversation request');
 
-    const chunks = [];
-    req.on('data', (chunk) => {
-        chunks.push(chunk);
-    });
 
-    req.on('end', async () => {
-        try {
-            // Parse request body
-            let payload;
+    try {
+        const action = payload.action || '';
+        const model = payload.model || '';
+        const parentMessageId = payload.parent_message_id || '';
+        const conversationId = payload.conversation_id || '';
+
+        let userMessage = '';
+        let preferredMessageId = '';
+
+        const messages = payload.messages || [];
+        if (messages.length > 0) {
+            const latestMessage = messages[messages.length - 1];
+            if (latestMessage.content && latestMessage.content.parts) {
+                userMessage = latestMessage.content.parts[0] || '';
+            }
+            preferredMessageId = latestMessage.id || '';
+        }
+
+        const task = {
+            type: 'conversation',
+            action,
+            question: userMessage,
+            preferred_message_id: preferredMessageId,
+            model,
+            parent_message_id: parentMessageId,
+            conversation_id: conversationId,
+            raw_payload: payload
+        };
+
+        if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
+            res.writeHead(400, {'Content-Type': 'application/json'});
+            return res.end(
+                JSON.stringify({
+                    error: 'Invalid request, please copy your prompt, refresh the page, and send again'
+                })
+            );
+        }
+
+        // Check if this is a request for an existing conversation and verify account match
+        if (task.conversation_id) {
             try {
-                payload = JSON.parse(Buffer.concat(chunks).toString());
-            } catch (parseError) {
-                logger.error(`Failed to parse request body: ${parseError.message}`);
-                res.writeHead(400, {'Content-Type': 'application/json'});
-                return res.end(JSON.stringify({error: 'Invalid JSON in request body'}));
-            }
+                const {PrismaClient} = require('@prisma/client');
+                const prisma = new PrismaClient();
 
-            const action = payload.action || '';
-            const model = payload.model || '';
-            const parentMessageId = payload.parent_message_id || '';
-            const conversationId = payload.conversation_id || '';
+                // Find the conversation in our database
+                const conversation = await prisma.conversation.findUnique({
+                    where: {id: task.conversation_id}
+                });
 
-            let userMessage = '';
-            let preferredMessageId = '';
-
-            const messages = payload.messages || [];
-            if (messages.length > 0) {
-                const latestMessage = messages[messages.length - 1];
-                if (latestMessage.content && latestMessage.content.parts) {
-                    userMessage = latestMessage.content.parts[0] || '';
-                }
-                preferredMessageId = latestMessage.id || '';
-            }
-
-            const task = {
-                type: 'conversation',
-                action,
-                question: userMessage,
-                preferred_message_id: preferredMessageId,
-                model,
-                parent_message_id: parentMessageId,
-                conversation_id: conversationId,
-                raw_payload: payload
-            };
-
-            // if (task.raw_payload.action === 'variant' && !task.raw_payload.conversation_id) {
-            //     res.writeHead(400, {'Content-Type': 'application/json'});
-            //     return res.end(
-            //         JSON.stringify({
-            //             error: 'Invalid request, please copy your prompt, refresh the page, and send again'
-            //         })
-            //     );
-            // }
-
-            // Check with webhook for managed users
-            const token = req.cookies?.access_token;
-            if (token) {
-                const webhookResult = await callWebhook(token, 'conversation_start',
-                    {
-                        action: task.action,
-                        model: model,
-                        question: userMessage,
-                        conversation_id: conversationId || null,
-                    },
-                    {"accept-language": (req.cookies?.['oai-locale'] || "en-US")}
-                );
-
-                if (!webhookResult.allowed) {
+                // If conversation exists but doesn't match current account, reject the request
+                if (conversation && conversation.accountName !== selectedAccount.name) {
+                    await prisma.$disconnect();
                     res.writeHead(403, {'Content-Type': 'application/json'});
-                    return res.end(JSON.stringify({
-                        error: webhookResult.reason || "unspecified reason",
-                    }));
+                    return res.end(
+                        JSON.stringify({
+                            error: 'This conversation is not accessible from your current account'
+                        })
+                    );
                 }
-            }
 
-            logger.info('assigning conversation task to worker', userMessage);
-            incrementUsage(selectedAccount.name, model);
-
-            try {
-                await doWork(task, req, res, selectedAccount);
-            } catch (e) {
-                if (!res.headersSent) {
-                    res.writeHead(500, {'Content-Type': 'application/json'});
-                    return res.end(JSON.stringify({error: e.toString()}));
-                }
+                await prisma.$disconnect();
+            } catch (error) {
+                console.error(`Error checking conversation account match: ${error.message}`);
+                // Continue if there's an error, the regular authorization will still apply
             }
-        } catch (error) {
-            logger.error(`Error handling conversation request: ${error.message}`);
+        }
+
+        // Check with webhook for managed users
+        const token = req.cookies?.access_token;
+        if (token) {
+            const webhookResult = await callWebhook(token, 'conversation_start',
+                {
+                    action: task.action,
+                    model: model,
+                    question: userMessage,
+                    conversation_id: conversationId || null,
+                },
+                {"accept-language": (req.cookies?.['oai-locale'] || "en-US")}
+            );
+
+            if (!webhookResult.allowed) {
+                res.writeHead(403, {'Content-Type': 'application/json'});
+                return res.end(JSON.stringify({
+                    error: webhookResult.reason || "unspecified reason",
+                }));
+            }
+        }
+
+        logger.info('assigning conversation task to worker', userMessage);
+        incrementUsage(selectedAccount.name, model);
+
+        try {
+            await doWork(task, req, res, selectedAccount);
+        } catch (e) {
             if (!res.headersSent) {
                 res.writeHead(500, {'Content-Type': 'application/json'});
-                res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
+                return res.end(JSON.stringify({error: e.toString()}));
             }
         }
-    });
-
-    req.on('error', (error) => {
-        logger.error(`Request error: ${error.message}`);
+    } catch (error) {
+        logger.error(`Error handling conversation request: ${error.message}`);
         if (!res.headersSent) {
             res.writeHead(500, {'Content-Type': 'application/json'});
-            res.end(JSON.stringify({error: `Request error: ${error.message}`}));
+            res.end(JSON.stringify({error: `Request processing error: ${error.message}`}));
         }
-    });
+    }
 }
 
 module.exports = {usageCounters, startReverseProxy, calculateAccountLoad, timeBasedUsageCounters};

@@ -5,7 +5,7 @@ module.exports = {
         'chatgpt.com',
     ],
     mockSuccessDomains: ['ab.chatgpt.com'],
-    mockSuccessPaths: ['/ces/', '/v1/rgstr', '/backend-api/lat/r'],
+    mockSuccessPaths: ['/ces/', '/v1/rgstr', '/backend-api/lat/r','/backend-api/conversation/implicit_message_feedback'],
     bannedPaths: [
         "backend-api/accounts/logout_all",
         "backend-api/accounts/deactivate",
