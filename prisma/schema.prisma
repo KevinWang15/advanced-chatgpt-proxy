@@ -51,5 +51,6 @@ model Conversation {
 
   @@index([accountName])
   @@index([userAccessToken])
+  @@index([userAccessToken, updatedAt])
   @@map("conversations")
 }

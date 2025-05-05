@@ -1,3 +1,8 @@
+# BUGS
+
+* 删除别的号的conversation，要注入别的号的cookies
+
+
 # TODO
 
 * 网关模式, 动态路由优选

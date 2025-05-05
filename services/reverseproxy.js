@@ -560,9 +560,6 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                             // Use raw SQL condition
                             whereClause = {
                                 userAccessToken: userAccessToken,
-                                conversationData: {
-                                    not: null
-                                }
                             };
                         }
 
