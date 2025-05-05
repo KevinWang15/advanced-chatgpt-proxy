@@ -1238,7 +1238,7 @@ async function handleConversation(req, res, payload, {doWork, selectedAccount}) 
             res.writeHead(400, {'Content-Type': 'application/json'});
             return res.end(
                 JSON.stringify({
-                    error: 'Invalid request, please copy your prompt, refresh the page, and send again'
+                    error: 'Something went wrong, Please try reloading the conversation'
                 })
             );
         }
