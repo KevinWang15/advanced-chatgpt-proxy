@@ -1313,4 +1313,8 @@ async function handleConversation(req, res, payload, {doWork, selectedAccount}) 
     }
 }
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 module.exports = {usageCounters, startReverseProxy, calculateAccountLoad, timeBasedUsageCounters};

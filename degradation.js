@@ -312,8 +312,7 @@ async function checkDegradation(account) {
     const knowledgeCutoffDateInYyyyMm = result.content.trim();
 
     // Convert to timestamp for Prometheus (assumes the first day of the month)
-    const [year, month] = knowledgeCutoffDateInYyyyMm.split('-').map(Number);
-    const knowledgeCutoffTimestamp = Date.UTC(year, month - 1, 1);
+    const knowledgeCutoffTimestamp = parseYearMonth(knowledgeCutoffDateInYyyyMm).timestamp;
 
     // Calculate degradation level
     let degradation = 0;
@@ -341,6 +340,42 @@ async function checkDegradation(account) {
         knowledgeCutoffTimestamp: Math.floor(knowledgeCutoffTimestamp / 1000), // Convert to seconds
         degradation,
         conversationId: result.conversationId
+    };
+}
+
+// Parse date strings in either YYYY-MM or YYYYMM format
+function parseYearMonth(dateString) {
+    // Remove any whitespace
+    const cleanDateString = dateString.trim();
+
+    let year, month;
+
+    // Check if it's in YYYY-MM format
+    if (cleanDateString.includes('-')) {
+        [year, month] = cleanDateString.split('-').map(Number);
+    }
+    // Check if it's in YYYYMM format (6 digits)
+    else if (/^\d{6}$/.test(cleanDateString)) {
+        year = parseInt(cleanDateString.substring(0, 4), 10);
+        month = parseInt(cleanDateString.substring(4, 6), 10);
+    }
+    // Invalid format
+    else {
+        throw new Error('Invalid date format. Expected YYYY-MM or YYYYMM');
+    }
+
+    // Validate year and month
+    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+        throw new Error('Invalid year or month values');
+    }
+
+    // Convert to timestamp for Prometheus (assumes the first day of the month)
+    const knowledgeCutoffTimestamp = Date.UTC(year, month - 1, 1);
+
+    return {
+        year,
+        month,
+        timestamp: knowledgeCutoffTimestamp
     };
 }
 
