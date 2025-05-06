@@ -69,6 +69,21 @@
             position: relative;
         }
 
+        .account-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            margin-right: 16px;
+            background-color: #f0f0f0;
+            overflow: hidden;
+        }
+
+        .account-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
         .account-item:hover {
             background-color: #f5f5f5;
         }
@@ -86,6 +101,13 @@
             color: #333;
             margin-bottom: 4px;
             font-weight: 500;
+            word-break: break-all;
+        }
+
+        .account-email {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 6px;
             word-break: break-all;
         }
 
@@ -285,8 +307,7 @@
     // Main state object - get current account from cookie at initialization
     const state = {
         accounts: [],
-        currentAccount: getCookie('account_name') || '',
-        degradationData: {},
+        currentAccount: getCookie('account_id') || '',
         isLoading: true,
         error: null
     };
@@ -351,38 +372,14 @@
         }, 1000);
     }
 
-    // Parse the degradation metrics text
-    function parseMetrics(metricsText) {
-        const degradationData = {};
-        const lines = metricsText.split('\n');
-
-        lines.forEach(line => {
-            if (line.startsWith('chatgpt_degradation{')) {
-                // Extract account name and value using regex
-                const accountMatch = line.match(/account_name="([^"]+)"/);
-                if (accountMatch && accountMatch[1]) {
-                    const accountName = accountMatch[1];
-
-                    // Get the degradation value (last number in the line)
-                    const valueMatch = line.match(/\s(\d+)$/);
-                    if (valueMatch && valueMatch[1]) {
-                        degradationData[accountName] = parseInt(valueMatch[1], 10);
-                    }
-                }
-            }
-        });
-
-        return degradationData;
-    }
-
     // Check if the current account from cookie exists in account list
     function checkCurrentAccountExists() {
         if (!state.currentAccount) return;
 
-        const accountExists = state.accounts.some(account => account.name === state.currentAccount);
+        const accountExists = state.accounts.some(account => account.id === state.currentAccount);
 
         if (!accountExists) {
-            showToast(`Account "${state.currentAccount}" is unavailable. Please select another account.`, 'error', 5000);
+            showToast(`Account "${getCookie('account_email')}" is unavailable. Please select another account.`, 'error', 5000);
             state.currentAccount = ''; // Reset current account
         }
     }
@@ -419,8 +416,8 @@
         let html = '<div class="account-list">';
 
         state.accounts.sort((a, b) => {
-            let aScore = state.degradationData[a.name];
-            let bScore = state.degradationData[b.name];
+            let aScore = a.degradation;
+            let bScore = b.degradation;
             if (aScore === undefined) {
                 aScore = 99;
             }
@@ -430,35 +427,38 @@
 
             return aScore - bScore;
         }).forEach(account => {
-            const isActive = account.name === state.currentAccount;
+            const isActive = account.id === state.currentAccount;
             const planClass = 'plan-' + account.labels.plan;
 
             // Determine degradation level
-            let degradationLevel = 'unknown';
             let degradationText = 'Status unknown';
+            let level = 'unknown';
 
-            if (account.name in state.degradationData) {
-                const level = state.degradationData[account.name];
-                degradationLevel = level;
+            if (typeof account.degradation == "number") {
+                level = account.degradation;
+            }
 
-                if (level === 0) {
-                    degradationText = 'Normal';
-                } else if (level === 1) {
-                    degradationText = 'Slightly degraded';
-                } else if (level === 2) {
-                    degradationText = 'Severely degraded';
-                }
+            if (level === 0) {
+                degradationText = 'Normal';
+            } else if (level === 1) {
+                degradationText = 'Slightly degraded';
+            } else if (level === 2) {
+                degradationText = 'Severely degraded';
             }
 
             html += `
-                <div class="account-item ${isActive ? 'active' : ''}" data-account="${account.name}">
+                <div class="account-item ${isActive ? 'active' : ''}" data-account="${account.id}">
                     ${isActive ? '<div class="active-indicator"></div>' : ''}
+                    <div class="account-avatar">
+                        <img src="${account.avatar}" alt="${account.name}">
+                    </div>
                     <div class="account-info">
                         <div class="account-name">${account.name}</div>
+                        <div class="account-email">${account.email || account.name}</div>
                         <div class="status-wrapper">
                             <span class="plan-badge ${planClass}">${account.labels.plan}</span>
                             <div class="degradation-indicator">
-                                <div class="degradation-dot degradation-${degradationLevel}"></div>
+                                <div class="degradation-dot degradation-${level}"></div>
                                 <span>${degradationText}</span>
                             </div>
                         </div>
@@ -479,16 +479,13 @@
     // Handle account switch
     async function handleAccountSwitch(event) {
         const accountElement = event.currentTarget;
-        const accountName = accountElement.dataset.account;
-
-        // Don't switch if it's already the active account
-        if (accountName === state.currentAccount) return;
+        const accountId = accountElement.dataset.account;
 
         try {
-            const response = await fetch(`/switch-account/${encodeURIComponent(accountName)}`);
+            const response = await fetch(`/switch-account/${encodeURIComponent(accountId)}`);
 
             if (response.status === 200) {
-                state.currentAccount = accountName;
+                state.currentAccount = accountId;
                 // Update the UI
                 renderAccounts();
 
@@ -496,7 +493,7 @@
                 localStorage.clear();
 
                 // Show countdown toast and redirect
-                showCountdownToast(`Account "${accountName}" selected.<br/>Navigating back in`, 3, 'success', () => {
+                showCountdownToast(`Account "${getCookie('account_email')}" selected.<br/>Navigating back in`, 3, 'success', () => {
                     window.location.href = '/';
                 });
             } else {
@@ -504,7 +501,7 @@
             }
         } catch (error) {
             console.error('Error switching account:', error);
-            showToast(`Error switching to account ${accountName}: ${error.message}`, 'error');
+            showToast(`Error switching to account ${accountId}: ${error.message}`, 'error');
         }
     }
 
@@ -521,18 +518,6 @@
                 throw new Error(`Failed to fetch accounts. Status: ${accountsResponse.status}`);
             }
             state.accounts = await accountsResponse.json();
-
-            // Fetch metrics for degradation info
-            try {
-                const metricsResponse = await fetch('/metrics');
-                if (metricsResponse.ok) {
-                    const metricsText = await metricsResponse.text();
-                    state.degradationData = parseMetrics(metricsText);
-                }
-            } catch (metricsError) {
-                console.warn('Failed to load degradation metrics:', metricsError);
-                // Not throwing error here, as this is non-critical
-            }
 
             // Success! Update the UI
             state.isLoading = false;

@@ -3,12 +3,8 @@ const config = require(path.join(__dirname, process.env.CONFIG));
 const {getInternalAuthenticationToken} = require("./services/auth");
 const axios = require("axios");
 const {v4: uuidv4} = require("uuid");
-const {usageCounters} = require("./services/reverseproxy");
-const {getAllAccounts} = require("./state/state");
+const {getAllAccounts, calculateAccountLoad, usageCounters, accountStatusMap} = require("./state/state");
 
-
-// Keep track of each account’s status
-const accountStatusMap = {};
 
 // Initialize the periodic check when the server starts
 initializeCleanupJob();
@@ -107,15 +103,12 @@ async function handleMetrics(req, res) {
 
         // If we have a valid result for this account, add it to the metrics output
         if (lastDegradationResult) {
-            // Build the label string: {account_name="...", plan="..."}
-            // Merge default label `account_name` with any custom labels in account.
-            const labelObj = {account_name: account.name, ...account.labels};
+            const labelObj = {account_id: account.id, ...account.labels};
             const labelString = Object.entries(labelObj)
                 .map(([k, v]) => `${k}="${v}"`)
                 .join(',');
 
             // Get the load value from reverseproxy.js
-            const {calculateAccountLoad} = require('./services/reverseproxy');
             const load = calculateAccountLoad(account.name);
 
             // Add each metric line with the appropriate labels
@@ -165,6 +158,9 @@ function initializeCleanupJob() {
     }, 60 * 1000); // every minute
 }
 
+const anonymizationService = require('./services/anonymization');
+
+
 /**
  * Core function that talks to /backend-api/conversation for a specific account
  * and returns the parsed results.
@@ -173,6 +169,8 @@ async function checkDegradation(account) {
     // Insert your internal token retrieval logic here
     const token = getInternalAuthenticationToken();
 
+    const acc = await anonymizationService.getOrCreateAnonymizedAccount(account.name);
+
     const response = await axios({
         method: 'POST',
         url: 'http://127.0.0.1:' + config.centralServer.port + '/backend-api/conversation',
@@ -180,7 +178,7 @@ async function checkDegradation(account) {
             'accept': 'text/event-stream',
             'content-type': 'application/json',
             'x-internal-authentication': token,
-            'x-account-name': account.name
+            'cookie': 'account_id=' + acc.id,
         },
         data: {
             action: 'next',
@@ -379,4 +377,4 @@ function parseYearMonth(dateString) {
     };
 }
 
-module.exports = {accountStatusMap, handleMetrics, performDegradationCheckForAccount}
+module.exports = {handleMetrics, performDegradationCheckForAccount}

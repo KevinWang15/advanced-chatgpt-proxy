@@ -1,11 +1,12 @@
 # BUGS
 
-* 删除别的号的conversation，要注入别的号的cookies
 
 
 # TODO
 
-* 中文版的界面元素去除
+* 一直refresh account是在做什么(好像只有切换账号的时候会refresh)
+* 首次会话会卡住(纯粹是因为网卡) - 首次会话的时候会多一个...也是不太好看
+* connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
 * advanced voice mode

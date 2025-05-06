@@ -7,6 +7,11 @@ const cookieParser = require('cookie-parser');
 const axios = require('axios');
 const {v4: uuidv4} = require('uuid');
 
+const React = require('react');
+const {renderToString} = require('react-dom/server');
+const Avatar = require('boring-avatars').default;
+const anonymizationService = require('./anonymization');
+
 const config = require(path.join(__dirname, "..", process.env.CONFIG));
 const {logger} = require('../utils/utils');
 const {
@@ -37,9 +42,9 @@ const {
 
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require('../consts');
 const {HttpsProxyAgent} = require("https-proxy-agent");
-const {workers, getAllAccounts, mapUserTokenToPendingNewConversation} = require("../state/state");
-const {PrismaClient} = require("@prisma/client");
+const {accounts, mapUserTokenToPendingNewConversation, incrementUsage, getAllAccounts} = require("../state/state");
 
+const avatarCache = new Map();
 const mimeTypes = {
     '.js': 'application/javascript',
     '.css': 'text/css',
@@ -120,7 +125,6 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 message: targetAccountName
                     ? `Scheduled degradation check for account: ${targetAccountName}`
                     : `Scheduled degradation checks for ${accounts.length} accounts`,
-                scheduledChecks: results
             });
         } catch (error) {
             console.error('Error triggering degradation checks:', error);
@@ -136,7 +140,19 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                     sameSite: 'lax',
                     path: '/'
                 });
-                res.cookie('account_name', req.query.account, {
+                res.cookie('account_id', req.query.account_id, {
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax',
+                    path: '/'
+                });
+                res.cookie('account_email', req.query.account_email, {
+                    maxAge: 30 * 24 * 60 * 60 * 1000,
+                    httpOnly: false,
+                    sameSite: 'lax',
+                    path: '/'
+                });
+                res.cookie('account_switcher_url', req.query.account_switcher_url, {
                     maxAge: 30 * 24 * 60 * 60 * 1000,
                     httpOnly: false,
                     sameSite: 'lax',
@@ -230,52 +246,104 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
     });
 
 
-    app.get('/switch-account/:name', (req, res) => {
-        const accountName = req.params.name;
-        res.cookie('account_name', accountName, {
+    app.get('/switch-account/:id', async (req, res) => {
+        const accountId = req.params.id;
+
+        const accounts = await anonymizationService.getAllAccountsWithAnonymizedData();
+        let acc = accounts.find(account => account.id === accountId);
+        if (!acc) {
+            res.status(400).send(`Account ${accountId} not found`);
+            return;
+        }
+
+        res.cookie('account_id', accountId, {
             maxAge: 30 * 24 * 60 * 60 * 1000,
             httpOnly: false,
             sameSite: 'lax',
             path: '/'
         });
 
-        const accounts = getAllAccounts();
-        if (!accounts.some(account => account.name === accountName)) {
-            res.status(400).send(`Account ${accountName} not found`);
-            return;
-        }
+        res.cookie('account_email', acc.email, {
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            httpOnly: false,
+            sameSite: 'lax',
+            path: '/'
+        });
 
-        res.send(`Switched to account: ${accountName}`);
+        res.send(`Switched to account: ${accountId}`);
     });
 
-    app.get('/accounts', (req, res) => {
-        const {getAllAccounts} = require('../state/state');
-        const {accountStatusMap} = require('../degradation');
-        const accounts = getAllAccounts();
-        res.send(accounts.map(x => {
-            const accountState = accountStatusMap[x.name];
-            const degradation = accountState?.lastDegradationResult ? accountState?.lastDegradationResult.degradation : null;
-            const load = calculateAccountLoad(x.name);
-            return {
-                name: x.name,
-                labels: x.labels || {},
-                degradation: degradation, // 0 is no degradation, 1 is slightly degraded, 2 is severely degraded
-                load: load // 0 to 100, based on usage in the past 3 hours
-            };
-        }));
+    // Avatar rendering endpoint
+    app.get('/avatar/:size/:seed', (req, res) => {
+        const {size, seed} = req.params;
+        const colors = req.query.colors || '264653,2a9d8f,e9c46a,f4a261,e76f51';
+
+        // Validate and normalize size
+        const parsedSize = parseInt(size, 10);
+        const validatedSize =
+            isNaN(parsedSize) || parsedSize < 1 || parsedSize > 500 ? 120 : parsedSize;
+        const colorArray = String(colors)
+            .split(',')
+            .map((c) => `#${c}`);
+
+        // Build a stable cache key (size|seed|colors)
+        const cacheKey = `${validatedSize}|${seed}|${colors}`;
+
+        // ===== 1. CACHE HIT  =====
+        const cachedSVG = avatarCache.get(cacheKey);
+        if (cachedSVG) {
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // keep client-side for 24 h
+            return res.status(200).send(cachedSVG);
+        }
+
+        // ===== 2. CACHE MISS (render + store) =====
+        try {
+            const svgContent = renderToString(
+                React.createElement(Avatar, {
+                    size: validatedSize,
+                    name: seed,
+                    colors: colorArray,
+                }),
+            );
+
+            // save forever (until process restarts)
+            avatarCache.set(cacheKey, svgContent);
+
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.status(200).send(svgContent);
+        } catch (err) {
+            console.error('Error generating avatar:', err);
+            return res.status(500).send('Error generating avatar');
+        }
+    });
+
+
+    app.get('/accounts', async (req, res) => {
+        try {
+            res.send(await anonymizationService.getAllAccountsWithAnonymizedData());
+        } catch (error) {
+            console.error('Error retrieving anonymized accounts:', error);
+            res.status(500).json({error: 'Failed to retrieve accounts'});
+        }
     });
 
     /**
      * Handle all other routes (the "fallback") exactly as in original code
      */
     app.all('*', async (req, res) => {
-        const accountName = req.headers['x-account-name'] || req.cookies['account_name'];
-        const selectedAccount = getSelectedAccount(accountName);
+        const accountId = req.cookies['account_id'];
+        const selectedAccount = await anonymizationService.getSelectedAccountById(accountId);
         if (!selectedAccount) {
+            if(req.cookies['account_switcher_url']){
+                return res.redirect(req.cookies['account_switcher_url']);
+            }
             return res.redirect('/accountswitcher');
         }
-        delete req.headers['x-account-name'];
+        delete req.cookies['account_id'];
         delete req.cookies['account_name'];
+        delete req.cookies['account_email'];
 
         try {
             // replicate your original "serve static" logic
@@ -424,9 +492,10 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                             });
                         } else {
                             res.writeHead(400, {'Content-Type': 'application/json'});
+                            const belongsTo = await anonymizationService.getOrCreateAnonymizedAccount(conversation.accountName);
                             return res.end(
                                 JSON.stringify({
-                                    error: `this conversation belongs to account ${conversation.accountName}, current account is ${selectedAccount.name}`,
+                                    error: `this conversation belongs to account ${belongsTo.fakeEmail}, current account is ${selectedAccount.email}`,
                                 })
                             );
                         }
@@ -702,7 +771,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                     // Format response to match the expected structure
                     const items = conversations.map(conv => {
                         // Extract title from conversation data if available
-                        let title = "-";
+                        let title = "New chat";
                         if (conv.conversationData && typeof conv.conversationData === 'object') {
                             if (conv.conversationData && conv.conversationData.title) {
                                 title = conv.conversationData.title;
@@ -824,77 +893,33 @@ function shouldMockSuccess(targetHost, targetPath) {
 
 let cache = {};
 
-function getSelectedAccount(accountName) {
-    const allAccounts = getAllAccounts();
-    return allAccounts.find(account => account.name === accountName);
-}
-
-// Global usage counter, mapping "accountName:model" -> numberOfCalls
-const usageCounters = {};
-
-// Time-based usage counter for tracking recent activity (past 3 hours)
-// Structure: { accountName: { timestamp1: count1, timestamp2: count2, ... } }
-const timeBasedUsageCounters = {};
-
-/**
- * Increment usage counters.
- * @param {string} accountName
- * @param {string} model
- */
-function incrementUsage(accountName, model) {
-    const key = `${accountName}||${model}`;
-    usageCounters[key] = (usageCounters[key] || 0) + 1;
-
-    // Also track time-based usage for load calculation
-    const timestamp = Math.floor(Date.now() / (5 * 60 * 1000)) * (5 * 60 * 1000); // Round to 5-minute buckets
-    if (!timeBasedUsageCounters[accountName]) {
-        timeBasedUsageCounters[accountName] = {};
-    }
-    timeBasedUsageCounters[accountName][timestamp] = (timeBasedUsageCounters[accountName][timestamp] || 0) + 1;
-}
-
-/**
- * Calculate account load based on usage in the past 3 hours
- * @param {string} accountName
- * @returns {number} Load value between 0-100
- */
-function calculateAccountLoad(accountName) {
-    if (!timeBasedUsageCounters[accountName]) {
-        return 0;
-    }
-
-    const now = Date.now();
-    const threeHoursAgo = now - (3 * 60 * 60 * 1000);
-
-    // Sum up all usage in the past 3 hours
-    let recentUsage = 0;
-    for (const [timestamp, count] of Object.entries(timeBasedUsageCounters[accountName])) {
-        if (parseInt(timestamp) >= threeHoursAgo) {
-            recentUsage += count;
-        }
-    }
-
-    // Clean up old entries (older than 3 hours)
-    Object.keys(timeBasedUsageCounters[accountName]).forEach(timestamp => {
-        if (parseInt(timestamp) < threeHoursAgo) {
-            delete timeBasedUsageCounters[accountName][timestamp];
-        }
-    });
-
-    // Use arctan function to map usage to a 0-100 scale
-    // arctan(x/50) * (2/π) * 100 gives a nice curve that reaches ~50 at x=50 and approaches 100 asymptotically
-    const load = Math.round(Math.atan(recentUsage / 50) * (2 / Math.PI) * 100);
-    return load;
-}
-
 const getHttpsProxyAgentCache = {};
 
-function getHttpsProxyAgent(selectedAccount) {
-    if (!getHttpsProxyAgentCache[selectedAccount.proxy]) {
-        getHttpsProxyAgentCache[selectedAccount.proxy] = new HttpsProxyAgent(selectedAccount.proxy);
+async function getHttpsProxyAgent(account) {
+    const realAccountName = await anonymizationService.getRealAccountNameById(account.id);
+    const {accounts} = require("../state/state.js");
+    const proxy = accounts[realAccountName].proxy;
+    if (!getHttpsProxyAgentCache[proxy]) {
+        getHttpsProxyAgentCache[proxy] = new HttpsProxyAgent(proxy);
     }
-    console.log("selected proxy", selectedAccount.proxy);
-    return getHttpsProxyAgentCache[selectedAccount.proxy];
+    return getHttpsProxyAgentCache[proxy];
+}
+
+async function getCookie(account) {
+    const realAccountName = await anonymizationService.getRealAccountNameById(account.id);
+    const {accounts} = require("../state/state.js");
+    return accounts[realAccountName].cookie;
+}
+
+
+async function getAccessToken(account) {
+    const realAccountName = await anonymizationService.getRealAccountNameById(account.id);
+    const {accounts} = require("../state/state.js");
+    return accounts[realAccountName].accessToken;
+}
+
+async function getRealAccountName(account) {
+    return await anonymizationService.getRealAccountNameById(account.id);
 }
 
 /**
@@ -928,9 +953,60 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
             delete headers['referer'];
         }
 
-        // Add authorization
-        headers['authorization'] = `Bearer ${selectedAccount.accessToken}`;
-        headers['cookie'] = `__Secure-next-auth.session-token=${selectedAccount.cookie}`;
+        let selectedAccountCookie = await getCookie(selectedAccount);
+        let selectedAccountAccessToken = await getAccessToken(selectedAccount);
+        let realAccountName = await getRealAccountName(selectedAccount);
+
+        if (req.method === 'PATCH' &&
+            targetPath.startsWith('/backend-api/conversation/') &&
+            requestBodyBuffer &&
+            requestBodyBuffer.toString().includes('"is_visible":false')) {
+
+            // Parse the request body
+            const bodyContent = requestBodyBuffer.toString();
+            const parsedBody = JSON.parse(bodyContent);
+
+            if (parsedBody.is_visible === false) {
+                const conversationId = targetPath.split('/conversation/')[1].split('/')[0];
+
+                // Find the conversation to determine its account
+                const {PrismaClient} = require('@prisma/client');
+                const prisma = new PrismaClient();
+                const conversation = await prisma.conversation.findFirst({
+                    where: {
+                        id: conversationId
+                    }
+                });
+
+                // If we found the conversation and it belongs to a different account
+                if (conversation && conversation.accountName !== realAccountName) {
+                    // Get the correct account for this conversation
+                    const conversationAccount = getAllAccounts().find(acc => acc.name === conversation.accountName);
+
+                    if (conversationAccount) {
+                        // Use the correct account's cookie and token
+                        headers['authorization'] = `Bearer ${conversationAccount.accessToken}`;
+                        headers['cookie'] = `__Secure-next-auth.session-token=${conversationAccount.cookie}`;
+                        console.log(`Using account ${conversationAccount.name} for deletion of conversation ${conversationId}`);
+                        await prisma.$disconnect();
+                    } else {
+                        await prisma.$disconnect();
+                        headers['cookie'] = `__Secure-next-auth.session-token=${selectedAccountCookie}`;
+                        headers['authorization'] = `Bearer ${selectedAccountAccessToken}`;
+                    }
+                } else {
+                    await prisma.$disconnect();
+                    headers['cookie'] = `__Secure-next-auth.session-token=${selectedAccountCookie}`;
+                    headers['authorization'] = `Bearer ${selectedAccountAccessToken}`;
+                }
+            } else {
+                headers['cookie'] = `__Secure-next-auth.session-token=${selectedAccountCookie}`;
+                headers['authorization'] = `Bearer ${selectedAccountAccessToken}`;
+            }
+        } else {
+            headers['cookie'] = `__Secure-next-auth.session-token=${selectedAccountCookie}`;
+            headers['authorization'] = `Bearer ${selectedAccountAccessToken}`;
+        }
 
         // Determine if this is a streaming request
         const isStreamRequest = targetPath.includes('/stream');
@@ -939,7 +1015,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
             method: req.method,
             url: `https://${targetHost}${targetPath}`,
             headers: headers,
-            httpsAgent: getHttpsProxyAgent(selectedAccount),
+            httpsAgent: await getHttpsProxyAgent(selectedAccount),
             responseType: isStreamRequest ? 'stream' : 'arraybuffer',
             maxRedirects: 5,
             validateStatus: null // Accept all status codes
@@ -1026,8 +1102,8 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
 
 
                 // Remove real credentials
-                modifiedContent = modifiedContent.replace(selectedAccount.accessToken, '');
-                modifiedContent = modifiedContent.replace(selectedAccount.cookie, '');
+                modifiedContent = modifiedContent.replace(selectedAccountAccessToken, '');
+                modifiedContent = modifiedContent.replace(selectedAccountCookie, '');
 
                 // Hard-code read-aloud: L("1923022511")?.value -> true
                 modifiedContent = modifiedContent.replace('L("1923022511")?.value', 'true');
@@ -1255,7 +1331,7 @@ async function handleConversation(req, res, payload, {doWork, selectedAccount}) 
                 });
 
                 // If conversation exists but doesn't match current account, reject the request
-                if (conversation && conversation.accountName !== selectedAccount.name) {
+                if (conversation && conversation.userAccessToken !== req.cookies?.access_token) {
                     await prisma.$disconnect();
                     res.writeHead(403, {'Content-Type': 'application/json'});
                     return res.end(
@@ -1293,8 +1369,8 @@ async function handleConversation(req, res, payload, {doWork, selectedAccount}) 
             }
         }
 
-        logger.info('assigning conversation task to worker', userMessage);
-        incrementUsage(selectedAccount.name, model);
+        logger.info('assigning conversation task to worker');
+        incrementUsage(await getRealAccountName(selectedAccount), model);
 
         try {
             await doWork(task, req, res, selectedAccount);
@@ -1317,4 +1393,4 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-module.exports = {usageCounters, startReverseProxy, calculateAccountLoad, timeBasedUsageCounters};
+module.exports = {startReverseProxy};

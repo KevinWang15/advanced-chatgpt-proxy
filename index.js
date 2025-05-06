@@ -19,12 +19,11 @@ const {
     workers,
     accounts,
     purgeWorker,
-    mapUserTokenToPendingNewConversation,
+    mapUserTokenToPendingNewConversation, accountStatusMap,
 } = require("./state/state");
 const path = require("path");
 const config = require(path.join(__dirname, process.env.CONFIG));
 const {
-    accountStatusMap,
     handleMetrics,
     performDegradationCheckForAccount,
 } = require("./degradation");
@@ -157,15 +156,17 @@ if (isCentralServer) {
     });
 }
 
+const anonymizationService = require('./services/anonymization');
 
 async function findAvailableWorker(selectedAccount) {
+    const realAccountName = await anonymizationService.getRealAccountNameById(selectedAccount.id);
     const startTime = Date.now();
     const timeout = 10000;
 
     while (Date.now() - startTime < timeout) {
         for (const workerId in workers) {
             const data = workers[workerId];
-            if (data.available && data.accountName === selectedAccount.name) {
+            if (data.available && data.accountName === realAccountName) {
                 return workerId;
             }
         }
@@ -178,6 +179,7 @@ async function findAvailableWorker(selectedAccount) {
 
 function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
     return new Promise(async (resolve, reject) => {
+        let realAccountName = await anonymizationService.getRealAccountNameById(selectedAccount.id);
         const workerId = await findAvailableWorker(selectedAccount);
         if (!workerId) {
             reject(new Error("No available workers; please copy your prompt, refresh the page, and send again"));
@@ -241,13 +243,13 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
                         id: conversationId
                     },
                     update: {
-                        accountName: selectedAccount.name,
+                        accountName: realAccountName,
                         userAccessToken: req.cookies?.access_token,
                         conversationData: conversationData.data
                     },
                     create: {
                         id: conversationId,
-                        accountName: selectedAccount.name,
+                        accountName: realAccountName,
                         userAccessToken: req.cookies?.access_token,
                         conversationData: conversationData.data
                     }
