@@ -4,7 +4,9 @@
 
 # TODO
 
-* 一直refresh account是在做什么(好像只有切换账号的时候会refresh)
+* 去掉原版chatgpt的各种不方便的东西
+  * 一直refresh account是在做什么(好像只有切换账号的时候会refresh)
+  * 微信浏览器的Cloudflare
 * 首次会话会卡住(纯粹是因为网卡) - 首次会话的时候会多一个...也是不太好看
 * connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选

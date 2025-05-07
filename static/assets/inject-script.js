@@ -318,7 +318,7 @@ class FloatingWidget {
       .widget-menu.visible{opacity:1;transform:scale(1)}
 
       .menu-item{padding:14px 18px;color:#f0f0f0;font:14px system-ui,sans-serif;
-                 display:flex;align-items:center;transition:background .2s;position:relative;overflow:hidden}
+                 display:flex;align-items:center;transition:background .2s;position:relative;overflow:hidden;cursor: pointer;}
       .menu-item:not(:last-child){border-bottom:1px solid rgba(255,255,255,.07)}
       .menu-item:hover{background:#333}
       .menu-item-icon{margin-right:12px;width:20px;height:20px;display:flex;
