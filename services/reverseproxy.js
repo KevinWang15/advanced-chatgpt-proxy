@@ -275,40 +275,52 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
     // Avatar rendering endpoint
     app.get('/avatar/:size/:seed', (req, res) => {
-        const {size, seed} = req.params;
-        const colors = req.query.colors || '264653,2a9d8f,e9c46a,f4a261,e76f51';
+        const VARIANTS = ['marble', 'beam', 'pixel', 'sunset', 'ring', 'bauhaus'];
 
-        // Validate and normalize size
-        const parsedSize = parseInt(size, 10);
+        function hashString(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = (hash << 5) - hash + str.charCodeAt(i);
+                hash |= 0;
+            }
+            return Math.abs(hash);
+        }
+
+        function pickVariant(seed) {
+            const index = hashString(seed) % VARIANTS.length;
+            return VARIANTS[index];
+        }
+
+        const { size, seed } = req.params;
+        const parsedSize   = parseInt(size, 10);
         const validatedSize =
             isNaN(parsedSize) || parsedSize < 1 || parsedSize > 500 ? 120 : parsedSize;
-        const colorArray = String(colors)
-            .split(',')
-            .map((c) => `#${c}`);
 
-        // Build a stable cache key (size|seed|colors)
-        const cacheKey = `${validatedSize}|${seed}|${colors}`;
+        // Stable variant selection
+        const variant = pickVariant(seed);
+
+        // Build a stable cache key (size|seed|variant)
+        const cacheKey = `${validatedSize}|${seed}|${variant}`;
 
         // ===== 1. CACHE HIT  =====
         const cachedSVG = avatarCache.get(cacheKey);
         if (cachedSVG) {
             res.setHeader('Content-Type', 'image/svg+xml');
-            res.setHeader('Cache-Control', 'public, max-age=86400'); // keep client-side for 24 h
+            res.setHeader('Cache-Control', 'public, max-age=86400');
             return res.status(200).send(cachedSVG);
         }
 
-        // ===== 2. CACHE MISS (render + store) =====
+        // ===== 2. CACHE MISS =====
         try {
             const svgContent = renderToString(
                 React.createElement(Avatar, {
                     size: validatedSize,
                     name: seed,
-                    colors: colorArray,
+                    variant,
                 }),
             );
 
-            // save forever (until process restarts)
-            avatarCache.set(cacheKey, svgContent);
+            avatarCache.set(cacheKey, svgContent); // cache for lifetime of process
 
             res.setHeader('Content-Type', 'image/svg+xml');
             res.setHeader('Cache-Control', 'public, max-age=86400');

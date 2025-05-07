@@ -200,7 +200,6 @@ function getCookie(name) {
 }
 
 
-// ----
 class FloatingWidget {
     constructor(options = {}) {
         this.options = {
@@ -377,65 +376,77 @@ class FloatingWidget {
 
     /* ── event handling ───────────────────────────────────── */
     attachEventListeners() {
-        /* click – open only if it really was a click, not a drag */
-        this.widget.addEventListener('click', e => {
-            if (this.justDragged) {            // skip one synthetic click after a drag
-                this.justDragged = false;
-                return;
-            }
-            this.createRippleEffect(e);
-            this.toggleMenu();
-        });
+        /* stop the page from panning while we drag */
+        this.widget.style.touchAction = 'none';
 
-        /* drag start */
-        this.widget.addEventListener('mousedown', e => {
-            if (e.button !== 0) return;
+        let activeId = null;        // id of the pointer currently dragging us
+
+        /* helpers */
+        const startDrag = (e) => {
+            activeId = e.pointerId;
             this.isDragging = false;
             this.justDragged = false;
-            this.dragStartTime = Date.now();
+
             const rect = this.widget.getBoundingClientRect();
             this.offsetX = e.clientX - rect.left;
             this.offsetY = e.clientY - rect.top;
             this.widget.style.transition = 'none';
-            e.preventDefault();
-        });
+        };
 
-        /* drag move */
-        document.addEventListener('mousemove', e => {
-            if (!this.dragStartTime) return;
+        const moveDrag = (e) => {
+            if (e.pointerId !== activeId) return;      // ignore stray pointers
             if (!this.isDragging) {
                 const dx = Math.abs(e.clientX - (this.widget.getBoundingClientRect().left + this.offsetX));
-                const dy = Math.abs(e.clientY - (this.widget.getBoundingClientRect().top + this.offsetY));
+                const dy = Math.abs(e.clientY - (this.widget.getBoundingClientRect().top  + this.offsetY));
                 if (dx > 3 || dy > 3) {
                     this.isDragging = true;
                     if (this.isExpanded) this.toggleMenu(false);
                 }
             }
-            if (!this.isDragging) return;
-            this.setPosition(e.clientX - this.offsetX, e.clientY - this.offsetY);
-            e.preventDefault();
-        });
+            if (this.isDragging) {
+                this.setPosition(e.clientX - this.offsetX, e.clientY - this.offsetY);
+            }
+        };
 
-        /* drag end */
-        document.addEventListener('mouseup', () => {
-            if (!this.dragStartTime) return;
+        const endDrag = (e) => {
+            if (e.pointerId !== activeId) return;
             if (this.isDragging) {
                 this.savePosition();
-                this.justDragged = true;         // suppress the next click event
+                this.justDragged = true;
             }
             this.isDragging = false;
-            this.dragStartTime = null;
+            activeId = null;
             this.widget.style.transition = '';
+            document.removeEventListener('pointermove', moveDrag);
+            document.removeEventListener('pointerup',   endDrag);
+        };
+
+        /* pointerdown starts everything */
+        this.widget.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;   // ignore right-click
+            startDrag(e);
+            document.addEventListener('pointermove', moveDrag);
+            document.addEventListener('pointerup',   endDrag);
+            e.preventDefault();    // still good practice here
         });
 
-        /* outside click closes */
-        document.addEventListener('click', e => {
-            if (this.isExpanded && !this.widget.contains(e.target) && !this.menu.contains(e.target)) {
+        /* tap / click opens the menu if it wasn’t a drag ------------ */
+        this.widget.addEventListener('click', (e) => {
+            if (this.justDragged) { this.justDragged = false; return; }
+            this.createRippleEffect(e);
+            this.toggleMenu();
+        });
+
+        /* outside press closes the menu ----------------------------- */
+        document.addEventListener('pointerdown', (e) => {
+            if (this.isExpanded &&
+                !this.widget.contains(e.target) &&
+                !this.menu.contains(e.target)) {
                 this.toggleMenu(false);
             }
         });
 
-        /* keep in view on resize */
+        /* keep the widget in the viewport on resize ---------------- */
         window.addEventListener('resize', () => {
             this.setPosition(parseInt(this.widget.style.left), parseInt(this.widget.style.top));
             if (this.isExpanded) this.toggleMenu(false);
