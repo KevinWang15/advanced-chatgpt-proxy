@@ -1146,6 +1146,10 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     new RegExp('subscriptionExpiresAt\\\\",\\d+'),
                     `subscriptionExpiresAt\\",4102329599`
                 );
+                modifiedContent = modifiedContent.replace(
+                    new RegExp('\\\\"planType\\\\",\\\\".+?\\\\"'),
+                    `\\"planType\\",\\"` + selectedAccount.labels.plan + `\\"`
+                );
 
                 if (
                     req.method === 'GET' && req.url.indexOf("/backend-api/") < 0
