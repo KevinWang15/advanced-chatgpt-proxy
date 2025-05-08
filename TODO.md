@@ -1,6 +1,7 @@
 # BUGS
 
-
+* deep research结果不能自动被保存
+* degradation check进数据库
 
 # TODO
 

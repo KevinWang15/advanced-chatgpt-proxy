@@ -15,6 +15,12 @@ setInterval(() => {
     }
 }, 5000);
 
+setInterval(() => {
+    if (!isWorking && Math.random() < 0.7) {
+        window.location.href = "/";
+    }
+}, (600 + 300 * Math.random()) * 1000)
+
 async function init() {
     if (socket) {
         socket.disconnect();

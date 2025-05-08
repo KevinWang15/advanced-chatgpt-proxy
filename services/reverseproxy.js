@@ -581,7 +581,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
                     if (conversation) {
                         // If the conversation is found, check if the account is the same as the current selected account
-                        const isCurrentAccount = conversation.accountName === selectedAccount.name;
+                        const isCurrentAccount = conversation.accountName === await getRealAccountName(selectedAccount);
 
                         // If not from the current account
                         if (!isCurrentAccount) {
