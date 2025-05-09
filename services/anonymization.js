@@ -169,7 +169,7 @@ class AnonymizationService {
 
                 const degradation = latestResult?.degradation ?? null;
 
-                const load = calculateAccountLoad(x.name);
+                const load = await calculateAccountLoad(x.name);
                 return {
                     name: x.name,
                     labels: x.labels || {},

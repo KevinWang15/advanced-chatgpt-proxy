@@ -78,3 +78,18 @@ model DegradationCheckResult {
   @@index([accountName, checkTime(sort: Desc)])
   @@map("degradation_check_results")
 }
+
+model AccountUsage {
+  id              String   @id @default(uuid())
+  accountName     String   @map("account_name")
+  model           String   // The model used (e.g., "gpt-4", "gpt-3.5-turbo")
+  timestamp       BigInt   @map("timestamp") // Store the Unix timestamp in milliseconds (5-minute buckets)
+  count           Int      @default(1) // Usage count for this time bucket
+  loadFactor      Float    @default(1.0) @map("load_factor") // Different models may contribute differently to load
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([accountName, model, timestamp]) // Ensure one entry per account-model-timestamp combination
+  @@index([accountName])
+  @@index([timestamp]) // For cleanup operations
+  @@map("account_usage")
+}

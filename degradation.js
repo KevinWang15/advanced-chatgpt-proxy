@@ -142,7 +142,7 @@ async function handleMetrics(req, res) {
                 .join(',');
 
             // Get the load value from reverseproxy.js
-            const load = calculateAccountLoad(account.name);
+            const load = await calculateAccountLoad(account.name);
 
             // Add each metric line with the appropriate labels
             metricsOutput += `

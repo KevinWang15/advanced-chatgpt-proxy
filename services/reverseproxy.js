@@ -341,6 +341,25 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
         }
     });
 
+    app.get('/usage', async (req, res) => {
+        try {
+            const accountLoadService = require('./accountLoad');
+
+            // Get usage data in different views
+            const usageByModel = await accountLoadService.getAggregatedUsageByModel();
+            const usageByAccount = await accountLoadService.getUsageByAccount();
+
+            // Return usage data in multiple views
+            res.send({
+                byModel: usageByModel,
+                byAccount: usageByAccount
+            });
+        } catch (error) {
+            console.error('Error retrieving usage data:', error);
+            res.status(500).json({error: 'Failed to retrieve usage data'});
+        }
+    });
+
     /**
      * Handle all other routes (the "fallback") exactly as in original code
      */
