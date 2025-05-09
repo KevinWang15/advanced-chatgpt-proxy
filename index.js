@@ -28,6 +28,7 @@ const {
     performDegradationCheckForAccount,
 } = require("./degradation");
 const {startAdminConsole} = require("./admin/main");
+const {pollDeepResearch} = require("./services/deepResearchMonitor");
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -38,6 +39,10 @@ process.on('unhandledRejection', (reason, promise) => {
 const isCentralServer = config.centralServer;
 if (isCentralServer) {
     logger.info("Starting as CENTRAL SERVER");
+
+    // Start deep research polling
+    setTimeout(pollDeepResearch, 5000); // Start polling after 5 seconds
+    logger.info("Deep research monitoring started");
 } else {
     logger.info(`Starting as WORKER, connecting to central server: ${config.worker.centralServer}`);
     if (config.adminConsole) {
@@ -290,6 +295,34 @@ function handleNetwork(data, socket) {
             // Complete the response
             workers[workerId].responseWriter.end();
         } else {
+            // Check for deep research activation
+            if (text.includes('"async_task_id": "deepresch_') && text.includes('"deep_research_version": "')) {
+                try {
+                    // Extract the async_task_id (deepresch_xxxx)
+                    const asyncTaskIdMatch = text.match(/"async_task_id":\s*"(deepresch_[^"]+)"/);
+                    const versionMatch = text.match(/"deep_research_version":\s*"([^"]+)"/);
+
+                    if (asyncTaskIdMatch && asyncTaskIdMatch[1]) {
+                        const asyncTaskId = asyncTaskIdMatch[1];
+                        const version = versionMatch && versionMatch[1] ? versionMatch[1] : 'unknown';
+                        const userAccessToken = workers[workerId].userAccessToken;
+
+                        // Check if we have a pending conversation ID for this user
+                        if (mapUserTokenToPendingNewConversation[userAccessToken] &&
+                            mapUserTokenToPendingNewConversation[userAccessToken].conversationId) {
+
+                            const conversationId = mapUserTokenToPendingNewConversation[userAccessToken].conversationId;
+
+                            // Track this deep research activation
+                            trackDeepResearchActivation(asyncTaskId, userAccessToken, conversationId, version)
+                                .catch(err => logger.error(`Error tracking deep research: ${err.message}`));
+                        }
+                    }
+                } catch (error) {
+                    logger.error(`Error processing deep research activation: ${error.message}`);
+                }
+            }
+
             // Extract conversation ID if present and add access
             // TODO: security vulnerability here; insufficiency here
             if (text.indexOf('"conversation_id": "') >= 0) {
@@ -326,6 +359,52 @@ function handleNetwork(data, socket) {
                 logger.error(`Error ending response: ${err.message}`);
             }
         }
+    }
+}
+
+// Helper function to track deep research activation
+async function trackDeepResearchActivation(asyncTaskId, userAccessToken, conversationId, version) {
+    try {
+        const {PrismaClient} = require('@prisma/client');
+        const prisma = new PrismaClient();
+
+        // Check if this async_task_id already exists in the database
+        const existingRecord = await prisma.deepResearchTracker.findUnique({
+            where: {
+                asyncTaskId: asyncTaskId
+            }
+        });
+
+        if (!existingRecord) {
+            // Create a new record for this deep research activation
+            await prisma.deepResearchTracker.create({
+                data: {
+                    asyncTaskId: asyncTaskId,
+                    userAccessToken: userAccessToken,
+                    conversationId: conversationId,
+                    status: 'pending',
+                    version: version
+                }
+            });
+
+            logger.info(`Tracked new deep research activation: ${asyncTaskId} for conversation ${conversationId}`);
+
+            // Import the notification function
+            const { notifyDeepResearchActivation } = require('./services/deepResearchMonitor');
+
+            // Notify about the new deep research activation without waiting for response
+            notifyDeepResearchActivation({
+                asyncTaskId,
+                conversationId,
+                userAccessToken,
+                version
+            });
+        }
+
+        await prisma.$disconnect();
+    } catch (error) {
+        logger.error(`Error in trackDeepResearchActivation: ${error.message}`);
+        throw error;
     }
 }
 

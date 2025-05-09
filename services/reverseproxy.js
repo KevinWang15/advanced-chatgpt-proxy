@@ -643,7 +643,6 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
                     await prisma.$disconnect();
                     // Continue with normal flow to proxy to ChatGPT
-
                 }
 
             }
@@ -975,6 +974,8 @@ async function getRealAccountName(account) {
  * The main proxy handler
  */
 async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer, selectedAccount) {
+    // Import the deep research monitor helper if not already available
+    const { processConversationForDeepResearch } = require('./deepResearchMonitor');
     try {
         // Prepare headers for the outgoing request
         const headers = {...req.headers};
@@ -1103,6 +1104,33 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 contentType.includes('css');
 
             const buffer = response.data;
+
+            // Check if this is a GET request for a conversation
+            if (req.method === 'GET' &&
+                targetPath.startsWith('/backend-api/conversation/') &&
+                !targetPath.split('?')[0].endsWith('generate_autocompletions') &&
+                !targetPath.split('?')[0].endsWith('download') &&
+                !targetPath.split('?')[0].endsWith('init') &&
+                !targetPath.split('?')[0].endsWith('search') &&
+                isTextResponse) {
+
+                try {
+                    // Get conversation ID from the path
+                    const conversationId = targetPath.split('conversation/')[1].split('/')[0].split('?')[0];
+
+                    // Parse the response data
+                    const responseData = JSON.parse(buffer.toString());
+
+                    // Process it for deep research status checks
+                    // This will update both the conversation data and any deep research tasks
+                    await processConversationForDeepResearch(responseData, conversationId);
+
+                    console.log(`Processed live conversation ${conversationId} for deep research status`);
+                } catch (deepResearchError) {
+                    logger.error(`Error processing deep research during live retrieval: ${deepResearchError.message}`);
+                    // Continue with the normal flow, don't block the response
+                }
+            }
 
             const parsedUrl = url.parse(req.url, true);
             if (isTextResponse) {

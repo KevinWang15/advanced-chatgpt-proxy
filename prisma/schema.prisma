@@ -93,3 +93,18 @@ model AccountUsage {
   @@index([timestamp]) // For cleanup operations
   @@map("account_usage")
 }
+
+model DeepResearchTracker {
+  asyncTaskId      String   @id @map("async_task_id") // "deepresch_xxxx"
+  userAccessToken  String   @map("user_access_token")
+  conversationId   String   @map("conversation_id")
+  status           String   @default("pending") // pending, timedout, failed, succeeded
+  version          String?  @map("version") // e.g. "full"
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([userAccessToken])
+  @@index([conversationId])
+  @@index([status])
+  @@map("deep_research_tracker")
+}
