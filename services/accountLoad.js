@@ -216,12 +216,12 @@ async function getUsageByAccount() {
             }
             usageByAccount[accountName].models[model] += count;
 
-            // Add time distribution data
-            const hour = new Date(Number(timestamp)).getHours();
-            if (!usageByAccount[accountName].timeDistribution[hour]) {
-                usageByAccount[accountName].timeDistribution[hour] = 0;
+            const date = new Date(Number(timestamp));
+            const dateHourKey = `${date.toISOString().split('T')[0]}_${date.getHours()}`;
+            if (!usageByAccount[accountName].timeDistribution[dateHourKey]) {
+                usageByAccount[accountName].timeDistribution[dateHourKey] = 0;
             }
-            usageByAccount[accountName].timeDistribution[hour] += count;
+            usageByAccount[accountName].timeDistribution[dateHourKey] += count;
         }
 
         return usageByAccount;
