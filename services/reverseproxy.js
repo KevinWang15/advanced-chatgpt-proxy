@@ -343,6 +343,24 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
     app.get('/usage', async (req, res) => {
         try {
+            // Check authorization using bearer token
+            const authHeader = req.headers.authorization;
+
+            // Verify the authorization header format and token
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                res.status(401).json({error: 'Unauthorized: Missing or invalid authorization header'});
+                return;
+            }
+
+            // Extract the token
+            const token = authHeader.split(' ')[1];
+
+            // Verify against the configured monitoring token
+            if (token !== config.centralServer.auth.monitoringToken) {
+                res.status(403).json({error: 'Forbidden: Invalid monitoring token'});
+                return;
+            }
+
             const accountLoadService = require('./accountLoad');
 
             // Get usage data in different views

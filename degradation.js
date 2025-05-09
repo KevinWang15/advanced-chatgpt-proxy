@@ -106,6 +106,24 @@ async function performDegradationCheckForAccount(account) {
  * Handle the HTTP request for metrics
  */
 async function handleMetrics(req, res, options = {}) {
+    // Check authorization using bearer token
+    const authHeader = req.headers.authorization;
+
+    // Verify the authorization header format and token
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.status(401).send('Unauthorized: Missing or invalid authorization header');
+        return;
+    }
+
+    // Extract the token
+    const token = authHeader.split(' ')[1];
+
+    // Verify against the configured monitoring token
+    if (token !== config.centralServer.auth.monitoringToken) {
+        res.status(403).send('Forbidden: Invalid monitoring token');
+        return;
+    }
+
     const {getAllAccounts} = require('./state/state');
     const accountLoadService = require('./services/accountLoad');
 

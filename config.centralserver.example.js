@@ -9,6 +9,7 @@ const config = {
         auth: {
             passcode: process.env.PASSCODE || 'securepasscode123',
             integrationApiKey: process.env.INTEGRATION_API_KEY || 'integration_key_example',
+            monitoringToken: process.env.MONITORING_TOKEN || 'monitoring_access_token_123',
         }
     },
 };
