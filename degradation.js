@@ -105,8 +105,9 @@ async function performDegradationCheckForAccount(account) {
 /**
  * Handle the HTTP request for metrics
  */
-async function handleMetrics(req, res) {
+async function handleMetrics(req, res, options = {}) {
     const {getAllAccounts} = require('./state/state');
+    const accountLoadService = require('./services/accountLoad');
 
     // Common metric definitions at the top
     let metricsOutput = `
@@ -120,52 +121,62 @@ async function handleMetrics(req, res) {
 # TYPE chatgpt_load gauge
 `.trimStart();
 
-    // Get all accounts that have workers connected
-    const availableAccounts = getAllAccounts();
+    try {
+        // Get all accounts that have workers connected
+        const availableAccounts = getAllAccounts();
 
-    for (const account of availableAccounts) {
-        // Get the most recent degradation check result from the database
-        const latestResult = await prisma.degradationCheckResult.findFirst({
-            where: {
-                accountName: account.name
-            },
-            orderBy: {
-                checkTime: 'desc'
-            }
-        });
+        for (const account of availableAccounts) {
+            // Get the most recent degradation check result from the database
+            const latestResult = await prisma.degradationCheckResult.findFirst({
+                where: {
+                    accountName: account.name
+                },
+                orderBy: {
+                    checkTime: 'desc'
+                }
+            });
 
-        // If we have a valid result for this account, add it to the metrics output
-        if (latestResult) {
-            const labelObj = {account_id: account.id, ...account.labels};
-            const labelString = Object.entries(labelObj)
-                .map(([k, v]) => `${k}="${v}"`)
-                .join(',');
+            // If we have a valid result for this account, add it to the metrics output
+            if (latestResult) {
+                const labelObj = {account_name: account.name, ...account.labels};
+                const labelString = Object.entries(labelObj)
+                    .map(([k, v]) => `${k}="${v}"`)
+                    .join(',');
 
-            // Get the load value from reverseproxy.js
-            const load = await calculateAccountLoad(account.name);
+                // Get the load value from the account load service
+                const load = await accountLoadService.calculateLoad(account.name);
 
-            // Add each metric line with the appropriate labels
-            metricsOutput += `
+                // Add each metric line with the appropriate labels
+                metricsOutput += `
 chatgpt_knowledge_cutoff_date{${labelString}} ${latestResult.knowledgeCutoffTimestamp}
 chatgpt_degradation{${labelString}} ${latestResult.degradation}
 chatgpt_last_check_timestamp{${labelString}} ${Math.floor(latestResult.checkTime.getTime() / 1000)}
 chatgpt_load{${labelString}} ${load}
 `;
+            }
         }
-    }
 
-    metricsOutput += `
+        // Get usage data from accountLoadService
+        const usageByModel = await accountLoadService.getAggregatedUsageByModel();
+
+        metricsOutput += `
 # HELP chatgpt_usage_total The total number of user conversation requests
 # TYPE chatgpt_usage_total counter
 `;
-    for (const [key, count] of Object.entries(usageCounters)) {
-        // key is "account||model"
-        const [accountName, model] = key.split("||");
-        metricsOutput += `chatgpt_usage_total{account_name="${accountName}",model="${model}"} ${count}\n`;
-    }
 
-    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
-    res.status(200).send(metricsOutput);
+        // Add detailed usage metrics from the database
+        for (const [model, data] of Object.entries(usageByModel)) {
+            for (const [accountName, count] of Object.entries(data.accounts)) {
+                metricsOutput += `chatgpt_usage_total{account_name="${accountName}",model="${model}"} ${count}\n`;
+            }
+        }
+
+        res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+        res.status(200).send(metricsOutput);
+    } catch (error) {
+        console.error('Error retrieving metrics data:', error);
+        res.status(500).send('Error retrieving metrics data');
+    }
 }
 
 /**
