@@ -66,3 +66,15 @@ model ChatGPTAccount {
 
   @@map("chatgpt_accounts")
 }
+
+model DegradationCheckResult {
+  id                      String   @id @default(uuid())
+  accountName             String   @map("account_name")
+  knowledgeCutoffDateString String   @map("knowledge_cutoff_date_string")
+  knowledgeCutoffTimestamp Int      @map("knowledge_cutoff_timestamp")
+  degradation             Int
+  checkTime               DateTime @default(now()) @map("check_time")
+
+  @@index([accountName, checkTime(sort: Desc)])
+  @@map("degradation_check_results")
+}

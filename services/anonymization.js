@@ -2,7 +2,7 @@ const {PrismaClient} = require('@prisma/client');
 const {faker} = require('@faker-js/faker');
 const crypto = require('crypto');
 const {v4: uuidv4} = require('uuid');
-const {getAllAccounts, calculateAccountLoad, accountStatusMap} = require("../state/state");
+const {getAllAccounts, calculateAccountLoad} = require("../state/state");
 const prisma = new PrismaClient();
 const path = require("path");
 const config = require(path.join(__dirname, "..", process.env.CONFIG));
@@ -155,17 +155,29 @@ class AnonymizationService {
     }
 
     async getAllAccountsWithAnonymizedData() {
-        const accounts = getAllAccounts().map(x => {
-            const accountState = accountStatusMap[x.name];
-            const degradation = accountState?.lastDegradationResult ? accountState?.lastDegradationResult.degradation : null;
-            const load = calculateAccountLoad(x.name);
-            return {
-                name: x.name,
-                labels: x.labels || {},
-                degradation: degradation, // 0 is no degradation, 1 is slightly degraded, 2 is severely degraded
-                load: load // 0 to 100, based on usage in the past 3 hours
-            };
-        });
+        const accounts = await Promise.all(
+            getAllAccounts().map(async x => {
+                // Get the most recent degradation check result from the database
+                const latestResult = await prisma.degradationCheckResult.findFirst({
+                    where: {
+                        accountName: x.name
+                    },
+                    orderBy: {
+                        checkTime: 'desc'
+                    }
+                });
+
+                const degradation = latestResult?.degradation ?? null;
+
+                const load = calculateAccountLoad(x.name);
+                return {
+                    name: x.name,
+                    labels: x.labels || {},
+                    degradation: degradation, // 0 is no degradation, 1 is slightly degraded, 2 is severely degraded
+                    load: load // 0 to 100, based on usage in the past 3 hours
+                };
+            })
+        );
 
         return await Promise.all(accounts.map(async (account) => {
             const anonymizedAccount = await this.getOrCreateAnonymizedAccount(account.name);

@@ -3,31 +3,53 @@ const config = require(path.join(__dirname, process.env.CONFIG));
 const {getInternalAuthenticationToken} = require("./services/auth");
 const axios = require("axios");
 const {v4: uuidv4} = require("uuid");
-const {getAllAccounts, calculateAccountLoad, usageCounters, accountStatusMap} = require("./state/state");
+const {getAllAccounts, calculateAccountLoad, usageCounters} = require("./state/state");
+const {PrismaClient} = require("@prisma/client");
+const prisma = new PrismaClient();
 
 
-// Initialize the periodic check when the server starts
-initializeCleanupJob();
+// Initialize the system with database persistence
+console.log("Initializing degradation check system with database persistence");
 
-setInterval(() => {
+// Declaration of performDatabaseMaintenance comes later in the file,
+// using the hoisted function declaration
+
+setInterval(async () => {
     const accounts = getAllAccounts();
 
-    accounts.forEach(account => {
-        const accountState = accountStatusMap[account.name];
+    for (const account of accounts) {
+        // Get the most recent check from the database
+        const latestCheck = await prisma.degradationCheckResult.findFirst({
+            where: {
+                accountName: account.name
+            },
+            orderBy: {
+                checkTime: 'desc'
+            }
+        });
 
-        // If no accountState exists, skip this account
-        if (!accountState) return;
+        // If no check exists yet, perform the check
+        if (!latestCheck) {
+            // Introduce a jitter (1 to 5 minutes)
+            const jitter = Math.floor(Math.random() * 5 + 1) * 60 * 1000; // 1 to 5 minutes in ms
+            setTimeout(() => {
+                console.log(`Performing degradation check for ${account.name} (No previous check found)`);
+                performDegradationCheckForAccount(account);
+            }, jitter);
+            continue;
+        }
 
-        const {lastCheckTime} = accountState;
+        const lastCheckTime = latestCheck.checkTime.getTime();
+        const now = Date.now();
 
         // Check if last check time is less than 3 hours ago
-        if (lastCheckTime && Date.now() - lastCheckTime < 3 * 60 * 60 * 1000) {
+        if (now - lastCheckTime < 3 * 60 * 60 * 1000) {
             // No need to perform a check if it's less than 3 hours ago
-            return;
+            continue;
         }
 
         // If it's greater than 5 hours ago, perform a degradation check
-        if (lastCheckTime && Date.now() - lastCheckTime > 5 * 60 * 60 * 1000) {
+        if (now - lastCheckTime > 5 * 60 * 60 * 1000) {
             // Introduce a jitter (1 to 5 minutes)
             const jitter = Math.floor(Math.random() * 5 + 1) * 60 * 1000; // 1 to 5 minutes in ms
 
@@ -36,11 +58,11 @@ setInterval(() => {
                 performDegradationCheckForAccount(account);
             }, jitter);
 
-            return;
+            continue;
         }
 
         // If it's between 3 and 5 hours ago, we perform the check with 10% chance
-        if (lastCheckTime && Date.now() - lastCheckTime >= 3 * 60 * 60 * 1000 && Math.random() < 0.1) {
+        if (now - lastCheckTime >= 3 * 60 * 60 * 1000 && Math.random() < 0.1) {
             // Introduce a jitter (1 to 5 minutes)
             const jitter = Math.floor(Math.random() * 5 + 1) * 60 * 1000; // 1 to 5 minutes in ms
 
@@ -49,26 +71,34 @@ setInterval(() => {
                 performDegradationCheckForAccount(account);
             }, jitter);
         }
-    });
+    }
 }, 600000);
 
 /**
  * Perform the degradation check for a single account with retry logic
  */
 async function performDegradationCheckForAccount(account) {
-    const accountState = accountStatusMap[account.name];
     try {
         console.log(`Performing degradation check for ${account.name}`);
 
-        // Update the account’s result and timestamp
-        accountState.lastDegradationResult = await checkDegradation(account);
-        accountState.lastCheckTime = Date.now();
+        // Get degradation check result
+        const degradationResult = await checkDegradation(account);
+        const checkTime = new Date();
 
-        console.log(`Degradation check successful for ${account.name}`);
+        // Save the result to the database
+        await prisma.degradationCheckResult.create({
+            data: {
+                accountName: account.name,
+                knowledgeCutoffDateString: degradationResult.knowledgeCutoffDateString,
+                knowledgeCutoffTimestamp: degradationResult.knowledgeCutoffTimestamp,
+                degradation: degradationResult.degradation,
+                checkTime: checkTime
+            }
+        });
+
+        console.log(`Degradation check successful for ${account.name} and saved to database`);
     } catch (error) {
         console.error(`Degradation check failed for ${account.name}:`, error);
-        accountState.lastDegradationResult = null;
-        accountState.lastCheckTime = Date.now();
     }
 }
 
@@ -94,15 +124,18 @@ async function handleMetrics(req, res) {
     const availableAccounts = getAllAccounts();
 
     for (const account of availableAccounts) {
-        const accountState = accountStatusMap[account.name];
-
-        // Skip accounts that don't have status data yet
-        if (!accountState) continue;
-
-        const {lastDegradationResult, lastCheckTime} = accountState;
+        // Get the most recent degradation check result from the database
+        const latestResult = await prisma.degradationCheckResult.findFirst({
+            where: {
+                accountName: account.name
+            },
+            orderBy: {
+                checkTime: 'desc'
+            }
+        });
 
         // If we have a valid result for this account, add it to the metrics output
-        if (lastDegradationResult) {
+        if (latestResult) {
             const labelObj = {account_id: account.id, ...account.labels};
             const labelString = Object.entries(labelObj)
                 .map(([k, v]) => `${k}="${v}"`)
@@ -113,9 +146,9 @@ async function handleMetrics(req, res) {
 
             // Add each metric line with the appropriate labels
             metricsOutput += `
-chatgpt_knowledge_cutoff_date{${labelString}} ${lastDegradationResult.knowledgeCutoffTimestamp}
-chatgpt_degradation{${labelString}} ${lastDegradationResult.degradation}
-chatgpt_last_check_timestamp{${labelString}} ${Math.floor(lastCheckTime / 1000)}
+chatgpt_knowledge_cutoff_date{${labelString}} ${latestResult.knowledgeCutoffTimestamp}
+chatgpt_degradation{${labelString}} ${latestResult.degradation}
+chatgpt_last_check_timestamp{${labelString}} ${Math.floor(latestResult.checkTime.getTime() / 1000)}
 chatgpt_load{${labelString}} ${load}
 `;
         }
@@ -136,27 +169,79 @@ chatgpt_load{${labelString}} ${load}
 }
 
 /**
- * Initialize a cleanup job that runs every minute. If the last check time is
- * more than 35 minutes ago, clear the degradation-related metrics for that account.
+ * Database maintenance function to purge degradation check records
+ * - Removes all records for accounts that haven't been checked in the last 6 hours
+ * - Also removes very old records (older than 30 days) to keep database size manageable
  */
-function initializeCleanupJob() {
-    setInterval(() => {
-        const now = Date.now();
-        const cutoff = 6 * 60 * 60 * 1000;
+async function performDatabaseMaintenance() {
+    try {
+        // Get all accounts with check results using Prisma's groupBy
+        const accounts = await prisma.degradationCheckResult.groupBy({
+            by: ['accountName'],
+            _max: {
+                checkTime: true
+            }
+        });
 
-        for (const [accountName, accountState] of Object.entries(accountStatusMap)) {
-            const {lastCheckTime} = accountState;
+        const sixHoursAgo = new Date();
+        sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
 
-            // If lastCheckTime exists and is older than 6 hours
-            if (lastCheckTime && (now - lastCheckTime) > cutoff) {
-                console.log(`Clearing degradation metrics for "${accountName}" due to inactivity (>35 min).`);
+        // Identify accounts whose latest check is older than 6 hours
+        const inactiveAccounts = accounts
+            .filter(account => account._max.checkTime < sixHoursAgo)
+            .map(account => account.accountName);
 
-                // Setting this to null ensures that no degradation metrics appear for this account
-                accountState.lastDegradationResult = null;
+        let totalDeleted = 0;
+
+        // Delete records for inactive accounts
+        if (inactiveAccounts.length > 0) {
+            const result = await prisma.degradationCheckResult.deleteMany({
+                where: {
+                    accountName: {
+                        in: inactiveAccounts
+                    }
+                }
+            });
+
+            totalDeleted += result.count;
+
+            if (result.count > 0) {
+                console.log(`Database maintenance: removed ${result.count} degradation check records for ${inactiveAccounts.length} inactive accounts (no checks in last 6 hours)`);
             }
         }
-    }, 60 * 1000); // every minute
+
+        // Also clean up very old records (30+ days) for active accounts
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const oldRecordsResult = await prisma.degradationCheckResult.deleteMany({
+            where: {
+                checkTime: {
+                    lt: thirtyDaysAgo
+                }
+            }
+        });
+
+        totalDeleted += oldRecordsResult.count;
+
+        if (oldRecordsResult.count > 0) {
+            console.log(`Database maintenance: removed ${oldRecordsResult.count} degradation check records older than 30 days`);
+        }
+
+        if (totalDeleted > 0) {
+            console.log(`Database maintenance: total records removed: ${totalDeleted}`);
+        }
+    } catch (error) {
+        console.error("Error performing database maintenance:", error);
+    }
 }
+
+// Run once at startup
+performDatabaseMaintenance().catch(err => console.error("Failed to run initial database maintenance:", err));
+
+// Schedule database maintenance to run every 10 minutes
+// This aligns with the old logic of regularly checking for stale data
+setInterval(performDatabaseMaintenance, 10 * 60 * 1000);
 
 const anonymizationService = require('./services/anonymization');
 
@@ -377,4 +462,4 @@ function parseYearMonth(dateString) {
     };
 }
 
-module.exports = {handleMetrics, performDegradationCheckForAccount}
+module.exports = {handleMetrics, performDegradationCheckForAccount, performDatabaseMaintenance}

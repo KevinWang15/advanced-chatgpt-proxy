@@ -19,7 +19,7 @@ const {
     workers,
     accounts,
     purgeWorker,
-    mapUserTokenToPendingNewConversation, accountStatusMap,
+    mapUserTokenToPendingNewConversation,
 } = require("./state/state");
 const path = require("path");
 const config = require(path.join(__dirname, process.env.CONFIG));
@@ -108,13 +108,6 @@ if (isCentralServer) {
         const {workerId} = socket.handshake.query;
 
         const {account} = socket.handshake.auth;
-
-        if (!accountStatusMap[account.name]) {
-            accountStatusMap[account.name] = {
-                lastDegradationResult: null,
-                lastCheckTime: null,
-            };
-        }
 
         if (!workerId) {
             console.log("A connection was made without a workerId. Disconnecting...");
