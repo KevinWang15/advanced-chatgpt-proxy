@@ -32,10 +32,13 @@ async function notifyDeepResearchActivation(researchData) {
       'X-API-Key': config.centralServer?.auth?.integrationApiKey || ''
     };
 
+
+    console.log("@notify",webhookUrl,notificationData,headers);
     // Send the notification - we don't await this and we ignore errors
     axios.post(webhookUrl, notificationData, { headers })
-      .then(() => {
+      .then((resp) => {
         logger.info(`Notified about deep research activation: ${researchData.asyncTaskId}`);
+        console.log(JSON.stringify(resp.data));
       })
       .catch(error => {
         // Just log errors, don't disrupt the main flow
