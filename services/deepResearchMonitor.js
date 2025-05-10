@@ -15,10 +15,10 @@ async function notifyDeepResearchActivation(researchData) {
   try {
     // Prepare notification data
     const notificationData = {
-      event_type: 'deep_research_activated',
-      async_task_id: researchData.asyncTaskId,
-      conversation_id: researchData.conversationId,
-      user_access_token: researchData.userAccessToken,
+      eventType: 'deep_research_activated',
+      asyncTaskId: researchData.asyncTaskId,
+      conversationId: researchData.conversationId,
+      userAccessToken: researchData.userAccessToken,
       version: researchData.version,
       timestamp: new Date().toISOString()
     };
@@ -33,12 +33,10 @@ async function notifyDeepResearchActivation(researchData) {
     };
 
 
-    console.log("@notify",webhookUrl,notificationData,headers);
     // Send the notification - we don't await this and we ignore errors
     axios.post(webhookUrl, notificationData, { headers })
       .then((resp) => {
         logger.info(`Notified about deep research activation: ${researchData.asyncTaskId}`);
-        console.log(JSON.stringify(resp.data));
       })
       .catch(error => {
         // Just log errors, don't disrupt the main flow
