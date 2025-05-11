@@ -226,6 +226,9 @@ async function init() {
                 await pollUntil(async () => {
                     let sendButton = await getSendButton();
                     if (sendButton.getAttribute('aria-label') === 'Send prompt') {
+                        if (conversationStarted) {
+                            return true;
+                        }
                         sendButton.click();
                         await sleep(100);
                         return sendButton.getAttribute('aria-label') !== 'Send prompt';
@@ -316,6 +319,7 @@ async function init() {
 }
 
 
+let conversationStarted = false;
 if (isChatGPT()) {
 
     // set up network interception
@@ -333,6 +337,10 @@ if (isChatGPT()) {
                         'Content-Type': 'application/json'
                     }
                 }));
+            }
+
+            if (args[1].method === "POST" && url.endsWith("backend-api/conversation")) {
+                conversationStarted = true;
             }
 
             // Call the original fetch

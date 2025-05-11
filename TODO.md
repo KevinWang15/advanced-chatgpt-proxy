@@ -2,19 +2,18 @@
 
 * advanced voice mode
 * Projects
-  * 跳转到正确的conversation网址
-    * 新会话 http://127.0.0.1:1234/g/g-p-681ff708d27081919b8e39c8a940c56e-test123/project
-    * 回复 http://127.0.0.1:1234/g/g-p-681ff708d27081919b8e39c8a940c56e-test123/c/68200493-8e60-8011-8d67-e52414ae09dd
   * list
   * 详情页面现在无法做到只读
-
+  * conversation当中需要添加gizmo这一列；需要在list当中过滤掉；两个更新conversation data的地方也要做类似的处理
+  * 重命名Project和conversation
+* 文件下载功能
+* 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西
   * 微信浏览器的Cloudflare
 * first token 如果10秒还没出来，就退出然后自动刷新页面
   * 现在变成了该刷新的时候需要多刷新
 * 优化搜索功能和归档功能
-* 首次会话会卡住(纯粹是因为网卡) - 首次会话的时候会多一个...也是不太好看
 * 代码写得太差了找时间重新写
 * connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选
