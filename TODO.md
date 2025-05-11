@@ -3,6 +3,8 @@
 * advanced voice mode
 * Projects
   * 跳转到正确的conversation网址
+    * 新会话 http://127.0.0.1:1234/g/g-p-681ff708d27081919b8e39c8a940c56e-test123/project
+    * 回复 http://127.0.0.1:1234/g/g-p-681ff708d27081919b8e39c8a940c56e-test123/c/68200493-8e60-8011-8d67-e52414ae09dd
   * list
   * 详情页面现在无法做到只读
 
