@@ -43,6 +43,7 @@ const {
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require('../consts');
 const {HttpsProxyAgent} = require("https-proxy-agent");
 const {accounts, mapUserTokenToPendingNewConversation, incrementUsage, getAllAccounts} = require("../state/state");
+const { processGizmoData, getGizmoById } = require('./gizmoMonitor');
 
 const avatarCache = new Map();
 const mimeTypes = {
@@ -647,6 +648,82 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
             }
 
+            // Handle gizmo data caching and updates
+            if (targetPath.startsWith('/backend-api/gizmos/')) {
+                let gizmoId = null;
+
+                // For regular gizmo endpoints
+                if (!targetPath.includes('/conversation/') &&
+                    !targetPath.includes('/bootstrap') &&
+                    !targetPath.includes('/sidebar')) {
+
+                    gizmoId = targetPath.split('/gizmos/')[1].split('/')[0].split('?')[0];
+                }
+                // For snorlax upsert endpoint
+                else if (targetPath.endsWith('/backend-api/gizmos/snorlax/upsert') && req.method === "POST") {
+                    try {
+                        // Parse the request body to get the gizmo ID for upsert operations
+                        const requestData = JSON.parse(requestBodyBuffer.toString());
+                        gizmoId = requestData?.resource?.gizmo?.id || null;
+                    } catch (error) {
+                        logger.error(`Error parsing upsert request body: ${error.message}`);
+                    }
+                }
+
+                if (gizmoId) {
+                    const userAccessToken = req.cookies?.access_token;
+
+                    if (!userAccessToken) {
+                        res.writeHead(401, {'Content-Type': 'application/json'});
+                        return res.end(JSON.stringify({error: 'User identity not provided'}));
+                    }
+
+                    try {
+                        // Get the gizmo from our database
+                        const gizmo = await getGizmoById(gizmoId);
+
+                        if (gizmo) {
+                            // Check if the gizmo is from the current account
+                            const isCurrentAccount = gizmo.accountName === await getRealAccountName(selectedAccount);
+
+                            // For POST requests (updates), reject if not from the current account
+                            if (req.method === "POST" && !isCurrentAccount) {
+                                const belongsTo = await anonymizationService.getOrCreateAnonymizedAccount(gizmo.accountName);
+
+                                res.writeHead(400, {'Content-Type': 'application/json'});
+                                return res.end(
+                                    JSON.stringify({
+                                        error: `This gizmo belongs to account ${belongsTo.fakeEmail}, current account is ${selectedAccount.email}`
+                                    })
+                                );
+                            }
+                            // For GET requests, serve from cache if not from current account
+                            else if (req.method === "GET" && !isCurrentAccount) {
+                                console.log(`Retrieving gizmo ${gizmoId} from database cache. Current account: ${isCurrentAccount ? 'yes' : 'no'}`);
+
+                                if (gizmo.gizmoData) {
+                                    res.writeHead(200, {
+                                        'Content-Type': 'application/json',
+                                        'access-control-allow-origin': config.centralServer.url
+                                    });
+
+                                    // Return the gizmo data from the database
+                                    return res.end(JSON.stringify(gizmo.gizmoData));
+                                }
+                            } else {
+                                console.log(`Live retrieving/updating gizmo ${gizmoId} from account ${selectedAccount.name}`);
+                                // If it's the current account, let it live retrieve/update
+                            }
+                        } else if (req.method === "GET") {
+                            console.log(`No cached data found for gizmo ${gizmoId}, proceeding with live retrieval`);
+                        }
+                    } catch (error) {
+                        logger.error(`Error while checking gizmo cache: ${error.message}`);
+                        // Continue with normal proxy flow on error
+                    }
+                }
+            }
+
             // Handle search endpoint specifically
             if (targetPath.split('?')[0] === '/backend-api/conversations/search') {
                 // Handle dedicated search endpoint
@@ -1128,6 +1205,46 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     console.log(`Processed live conversation ${conversationId} for deep research status`);
                 } catch (deepResearchError) {
                     logger.error(`Error processing deep research during live retrieval: ${deepResearchError.message}`);
+                    // Continue with the normal flow, don't block the response
+                }
+            }
+
+            // Process gizmo data from responses (both GET and POST)
+            if (isTextResponse &&
+                ((req.method === 'GET' &&
+                  targetPath.startsWith('/backend-api/gizmos/') &&
+                  !targetPath.includes('/conversation/') &&
+                  !targetPath.includes('/bootstrap') &&
+                  !targetPath.includes('/sidebar')) ||
+                 (req.method === 'POST' && targetPath.endsWith('/backend-api/gizmos/snorlax/upsert')))) {
+
+                try {
+                    let gizmoId = null;
+                    // For GET requests, extract from path
+                    if (req.method === 'GET') {
+                        gizmoId = targetPath.split('/gizmos/')[1].split('/')[0].split('?')[0];
+                    }
+                    // For POST requests, extract from response
+                    else if (req.method === 'POST') {
+                        const responseData = JSON.parse(buffer.toString());
+                        gizmoId = responseData?.resource?.gizmo?.id || null;
+                    }
+
+                    if (gizmoId) {
+                        // Parse the response data
+                        const responseData = JSON.parse(buffer.toString());
+
+                        // Get the user token and account name
+                        const userAccessToken = req.cookies?.access_token;
+                        const realAccountName = await getRealAccountName(selectedAccount);
+
+                        // Process the gizmo data
+                        await processGizmoData(responseData, gizmoId, userAccessToken, realAccountName);
+
+                        console.log(`Processed gizmo data for ${gizmoId} from ${req.method} request`);
+                    }
+                } catch (gizmoError) {
+                    logger.error(`Error processing gizmo data during ${req.method}: ${gizmoError.message}`);
                     // Continue with the normal flow, don't block the response
                 }
             }

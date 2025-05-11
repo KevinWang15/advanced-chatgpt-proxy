@@ -2,7 +2,9 @@
 
 * advanced voice mode
 * Projects
-
+  * 跳转到正确的conversation网址
+  * list
+  * 详情页面现在无法做到只读
 
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西

@@ -108,3 +108,19 @@ model DeepResearchTracker {
   @@index([status])
   @@map("deep_research_tracker")
 }
+
+model Gizmo {
+  id              String   @id @map("gizmo_id") // The gizmo ID from ChatGPT
+  userAccessToken String   @map("user_access_token") // The user token who accessed this gizmo
+  accountName     String   @map("account_name") // The account used to access the gizmo
+  gizmoData       Json     @map("gizmo_data") // The full gizmo data response
+  shortUrl        String?  @map("short_url") // The short URL if available
+  name            String?  @map("name") // The gizmo name
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  lastInteracted  DateTime? @map("last_interacted") // Last time the gizmo was used
+
+  @@index([userAccessToken])
+  @@index([accountName])
+  @@map("gizmos")
+}
