@@ -996,7 +996,7 @@ function determineTarget(requestUrl) {
         targetHost = 'files.oaiusercontent.com';
     } else if (requestUrl.includes('v1/')) {
         targetHost = 'ab.chatgpt.com';
-    } else if (requestUrl.includes('sandbox')) {
+    } else if (requestUrl.includes('sandbox') && !requestUrl.includes('interpreter/download')) {
         targetHost = 'web-sandbox.oaiusercontent.com';
         targetPath = targetPath.replace('sandbox/', '');
     }

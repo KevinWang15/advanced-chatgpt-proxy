@@ -6,7 +6,7 @@
   * 详情页面现在无法做到只读
   * conversation当中需要添加gizmo这一列；需要在list当中过滤掉；两个更新conversation data的地方也要做类似的处理
   * 重命名Project和conversation
-* 文件下载功能
+
 * 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西
