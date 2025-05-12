@@ -424,32 +424,55 @@ function handleCdnOaiStaticComMitm(account, clientSocket, head) {
  * For other domains: raw tunnel via SOCKS5
  */
 async function handleDirectTcpTunnel(req, account, clientSocket, head) {
-    // Parse out the target host:port from req.url
-    const [host, portString] = req.url.split(':');
-    const port = Number(portString);
+    // -------- 1. Parse target host:port --------
+    // req.url can be like "example.com:443" or "//example.com:443"
+    const target = req.url.replace(/^\/\//, '');
+    const [host, portStr] = target.split(':');
+    const port = Number(portStr || 443);
+
+    let proxySocket;                          // will hold the upstream tunnel
+
+    // helper: make sure we destroy *both* ends exactly once
+    let closed = false;
+    const destroyBoth = (err) => {
+        if (closed) return;
+        closed = true;
+        if (err) console.error('Tunnel closed:', err);
+        try { clientSocket.destroy(); } catch (_) {}
+        try { proxySocket?.destroy(); } catch (_) {}
+    };
 
     try {
-        // 1. Create a tunnel to the actual target via your HTTPS proxy
-        const {socket: proxySocket} = await createHttpsTunnel(account.proxy, host, port);
+        // -------- 2. Create HTTPS CONNECT tunnel via proxy --------
+        ({ socket: proxySocket } = await createHttpsTunnel(account.proxy, host, port));
 
-        // 2. Notify the client that the connection is established
-        clientSocket.write([
-            'HTTP/1.1 200 Connection Established',
-            'Proxy-agent: Node.js-Proxy',
-            '', ''
-        ].join('\r\n'));
+        // -------- 3. Tell the client the tunnel is ready --------
+        clientSocket.write(
+            'HTTP/1.1 200 Connection Established\r\n' +
+            'Proxy-agent: Node.js-Proxy\r\n' +
+            '\r\n'
+        );
 
-        // 3. If there’s leftover head data, write it to the proxy socket
-        if (head && head.length) {
-            proxySocket.write(head);
+        // forward any buffered data the client already sent
+        if (head && head.length) proxySocket.write(head);
+
+        // -------- 4. Wire sockets with full teardown semantics --------
+        for (const s of [clientSocket, proxySocket]) {
+            // kill idle connections (30 s without traffic)
+            s.setTimeout(30_000, () => destroyBoth(new Error('socket timeout')));
+            // propagate errors/close in either direction
+            s.on('error', destroyBoth).on('close', destroyBoth);
         }
 
-        // 4. Pipe data between client & the proxy tunnel
-        clientSocket.pipe(proxySocket).pipe(clientSocket);
+        // bidirectional piping with Node back-pressure
+        clientSocket.pipe(proxySocket);
+        proxySocket.pipe(clientSocket);
+
     } catch (err) {
-        console.error('HTTPS proxy error:', err);
-        clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-        clientSocket.end();
+        // failure before wiring: clean up and inform client
+        console.error('HTTPS proxy setup error:', err);
+        clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+        destroyBoth(err);
     }
 }
 
