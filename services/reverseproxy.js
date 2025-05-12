@@ -30,13 +30,11 @@ const {
     generateToken,
     saveToken,
     checkConversationAccess,
-    listUserConversations,
     addConversationAccess,
     getInternalAuthenticationToken,
     addGizmoAccess,
     listUserGizmos,
     verifyIntegrationApiKey,
-    getTokenInfo,
     callWebhook
 } = require('./auth');
 
