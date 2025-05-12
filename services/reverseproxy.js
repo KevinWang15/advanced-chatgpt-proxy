@@ -858,9 +858,10 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                     const limit = parseInt(parsedUrl.query.limit) || 28;
                     const order = parsedUrl.query.order || 'updated';
 
-                    // Regular listing conditions
+                    // Regular listing conditions - filter out gizmo conversations
                     const whereClause = {
-                        userAccessToken: userAccessToken
+                        userAccessToken: userAccessToken,
+                        gizmoId: null // Only include conversations with no gizmo ID
                     };
 
                     // Query conversations from our database
