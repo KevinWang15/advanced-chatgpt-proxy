@@ -1189,6 +1189,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 !targetPath.split('?')[0].endsWith('download') &&
                 !targetPath.split('?')[0].endsWith('init') &&
                 !targetPath.split('?')[0].endsWith('search') &&
+                !targetPath.split('?')[0].endsWith('textdocs') &&
                 isTextResponse) {
 
                 try {
