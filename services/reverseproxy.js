@@ -646,6 +646,92 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
             }
 
+            // Handle gizmo conversations endpoint
+            if (targetPath.split('?')[0].match(/\/backend-api\/gizmos\/[^\/]+\/conversations$/)) {
+                const {PrismaClient} = require('@prisma/client');
+                const prisma = new PrismaClient();
+                const userAccessToken = req.cookies?.access_token;
+
+                try {
+                    // Extract gizmo ID from the path
+                    const gizmoId = targetPath.split('/gizmos/')[1].split('/conversations')[0];
+
+                    // Check if the user has access to this gizmo
+                    const hasAccess = await prisma.gizmoAccess.findFirst({
+                        where: {
+                            gizmoId: gizmoId,
+                            token: userAccessToken
+                        }
+                    });
+
+                    if (!hasAccess) {
+                        res.writeHead(403, {'Content-Type': 'application/json'});
+                        return res.end(JSON.stringify({
+                            error: 'You do not have access to this gizmo'
+                        }));
+                    }
+
+                    // Find all conversations for this gizmo
+                    const conversations = await prisma.conversation.findMany({
+                        where: {
+                            gizmoId: gizmoId,
+                            userAccessToken: userAccessToken
+                        },
+                        orderBy: {
+                            updatedAt: 'desc'
+                        }
+                    });
+
+                    // Format conversations for the response
+                    const items = conversations.map(conv => {
+                        // Extract title from conversation data
+                        let title = "New chat";
+                        if (conv.conversationData && typeof conv.conversationData === 'object') {
+                            if (conv.conversationData.title ||
+                                (conv.conversationData.data && conv.conversationData.data.title)) {
+                                title = conv.conversationData.title || conv.conversationData.data.title;
+                            }
+                        }
+
+                        return {
+                            id: conv.id,
+                            title: title,
+                            create_time: conv.createdAt.toISOString(),
+                            update_time: conv.updatedAt.toISOString(),
+                            mapping: null,
+                            current_node: null,
+                            conversation_template_id: gizmoId,
+                            gizmo_id: gizmoId,
+                            is_archived: false,
+                            is_starred: null,
+                            is_do_not_remember: null,
+                            memory_scope: "project_enabled",
+                            workspace_id: null,
+                            async_status: null,
+                            safe_urls: [],
+                            blocked_urls: [],
+                            conversation_origin: null,
+                            snippet: null
+                        };
+                    });
+
+                    const response = { items };
+
+                    await prisma.$disconnect();
+
+                    // Return our custom response
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'access-control-allow-origin': config.centralServer.url
+                    });
+                    return res.end(JSON.stringify(response));
+                } catch (error) {
+                    logger.error(`Error handling gizmo conversations: ${error.message}`);
+                    await prisma.$disconnect();
+                    // Continue with normal proxy flow on error
+                }
+            }
+
             // Handle gizmo data caching and updates
             if (targetPath.startsWith('/backend-api/gizmos/')) {
                 let gizmoId = null;
@@ -653,7 +739,8 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 // For regular gizmo endpoints
                 if (!targetPath.includes('/conversation/') &&
                     !targetPath.includes('/bootstrap') &&
-                    !targetPath.includes('/sidebar')) {
+                    !targetPath.includes('/sidebar') &&
+                    !targetPath.includes('/conversations')) {
 
                     gizmoId = targetPath.split('/gizmos/')[1].split('/')[0].split('?')[0];
                 }
