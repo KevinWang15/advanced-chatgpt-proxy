@@ -128,9 +128,6 @@ async function checkConversationAccess(conversationId, token, requiredAccessType
     if (!token) { // x-internal-authentication
         return true;
     }
-    if (process.env.NO_CONVERSATION_ISOLATION) {
-        return true;
-    }
 
     if (!token || !conversationId) {
         return false;
@@ -160,9 +157,6 @@ async function checkConversationAccess(conversationId, token, requiredAccessType
 
 async function addConversationAccess(conversationId, token, accessType = 'owner') {
     if (!token) { // x-internal-authentication
-        return true;
-    }
-    if (process.env.NO_CONVERSATION_ISOLATION) {
         return true;
     }
 

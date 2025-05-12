@@ -1418,10 +1418,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     }
 
                     let parsed = JSON.parse(modifiedContent);
-
-                    if (!process.env.NO_CONVERSATION_ISOLATION) {
-                        parsed.items = parsed.items.filter((item) => !!ids[item.gizmo.gizmo.id]);
-                    }
+                    parsed.items = parsed.items.filter((item) => !!ids[item.gizmo.gizmo.id]);
                     modifiedContent = JSON.stringify(parsed);
                 }
 
