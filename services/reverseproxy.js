@@ -1214,6 +1214,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 ((req.method === 'GET' &&
                   targetPath.startsWith('/backend-api/gizmos/') &&
                   !targetPath.includes('/conversation/') &&
+                  !targetPath.includes('/conversations') &&
                   !targetPath.includes('/bootstrap') &&
                   !targetPath.includes('/sidebar')) ||
                  (req.method === 'POST' && targetPath.endsWith('/backend-api/gizmos/snorlax/upsert')))) {
