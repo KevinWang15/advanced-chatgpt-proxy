@@ -1412,15 +1412,109 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 }
 
                 if (targetPath.startsWith('/backend-api/gizmos/snorlax/sidebar')) {
-                    const userGizmos = await listUserGizmos(req.cookies?.access_token);
-                    const ids = {};
-                    for (let uc of userGizmos) {
-                        ids[uc.gizmoId] = true;
-                    }
+                    // Use our database to build the sidebar content instead of relying on proxy data
+                    const {PrismaClient} = require('@prisma/client');
+                    const prisma = new PrismaClient();
+                    const userAccessToken = req.cookies?.access_token;
 
-                    let parsed = JSON.parse(modifiedContent);
-                    parsed.items = parsed.items.filter((item) => !!ids[item.gizmo.gizmo.id]);
-                    modifiedContent = JSON.stringify(parsed);
+                    try {
+                        // Get user's gizmos from GizmoAccess table
+                        const userGizmos = await listUserGizmos(userAccessToken);
+                        const gizmoIds = userGizmos.map(ug => ug.gizmoId);
+
+                        // Get detailed gizmo data from our database
+                        const gizmos = await prisma.gizmo.findMany({
+                            where: {
+                                id: {
+                                    in: gizmoIds
+                                }
+                            }
+                        });
+
+                        // For each gizmo, find related conversations
+                        const sidebarItems = [];
+
+                        for (const gizmo of gizmos) {
+                            // Find conversations that use this gizmo
+                            const conversations = await prisma.conversation.findMany({
+                                where: {
+                                    gizmoId: gizmo.id,
+                                    userAccessToken: userAccessToken
+                                },
+                                orderBy: {
+                                    updatedAt: 'desc'
+                                }
+                            });
+
+                            // Format conversations for the response
+                            const conversationItems = conversations.map(conv => {
+                                // Extract title from conversation data
+                                let title = "New chat";
+                                if (conv.conversationData && typeof conv.conversationData === 'object') {
+                                    if (conv.conversationData.title ||
+                                        (conv.conversationData.data && conv.conversationData.data.title)) {
+                                        title = conv.conversationData.title || conv.conversationData.data.title;
+                                    }
+                                }
+
+                                return {
+                                    id: conv.id,
+                                    title: title,
+                                    create_time: conv.createdAt.toISOString(),
+                                    update_time: conv.updatedAt.toISOString(),
+                                    mapping: null,
+                                    current_node: null,
+                                    conversation_template_id: gizmo.id,
+                                    gizmo_id: gizmo.id,
+                                    is_archived: false,
+                                    is_starred: null,
+                                    is_do_not_remember: null,
+                                    memory_scope: "project_enabled",
+                                    workspace_id: null,
+                                    async_status: null,
+                                    safe_urls: [],
+                                    blocked_urls: [],
+                                    conversation_origin: null,
+                                    snippet: null
+                                };
+                            });
+
+                            // Add the gizmo with its conversations to the sidebar
+                            sidebarItems.push({
+                                gizmo: gizmo.gizmoData,
+                                conversations: {
+                                    items: conversationItems
+                                }
+                            });
+                        }
+
+                        // Create the final response format
+                        const response = {
+                            items: sidebarItems,
+                            cursor: null
+                        };
+
+                        await prisma.$disconnect();
+
+                        // Return our custom response instead of the modified proxy response
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'access-control-allow-origin': config.centralServer.url
+                        });
+                        return res.end(JSON.stringify(response));
+                    } catch (error) {
+                        logger.error(`Error building gizmo sidebar: ${error.message}`);
+                        await prisma.$disconnect();
+
+                        // Fall back to filtering the proxy response if our approach fails
+                        let parsed = JSON.parse(modifiedContent);
+                        const ids = {};
+                        for (let uc of userGizmos) {
+                            ids[uc.gizmoId] = true;
+                        }
+                        parsed.items = parsed.items.filter((item) => !!ids[item.gizmo.gizmo.id]);
+                        modifiedContent = JSON.stringify(parsed);
+                    }
                 }
 
                 // Send final text response
