@@ -243,13 +243,15 @@ function doWork(task, req, res, selectedAccount, {retryCount = 0} = {}) {
                     update: {
                         accountName: realAccountName,
                         userAccessToken: req.cookies?.access_token,
-                        conversationData: conversationData.data
+                        conversationData: conversationData.data,
+                        gizmoId:conversationData?.data?.gizmo_id,
                     },
                     create: {
                         id: conversationId,
                         accountName: realAccountName,
                         userAccessToken: req.cookies?.access_token,
-                        conversationData: conversationData.data
+                        conversationData: conversationData.data,
+                        gizmoId:conversationData?.data?.gizmo_id,
                     }
                 });
 

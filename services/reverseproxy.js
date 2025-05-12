@@ -1396,6 +1396,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                             },
                             data: {
                                 conversationData: conversation.conversationData,
+                                gizmoId: conversation.conversationData?.data?.gizmo_id,
                             }
                         });
                     }

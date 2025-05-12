@@ -78,6 +78,7 @@ async function processConversationForDeepResearch(conversationData, conversation
         },
         data: {
           conversationData: conversationData,
+          gizmoId:conversationData?.data?.gizmo_id,
           updatedAt: new Date()
         }
       });
