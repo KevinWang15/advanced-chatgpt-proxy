@@ -2,12 +2,11 @@
 
 * advanced voice mode
 * Projects
-  * list
-  * 详情页面现在无法做到只读
-  * conversation当中需要添加gizmo这一列；需要在list当中过滤掉；两个更新conversation data的地方也要做类似的处理
   * 重命名Project和conversation
+  * mapUserTokenToPendingNewConversation的处理
 
 * 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
+* canvas - 切换账号之后会不工作
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西
   * 微信浏览器的Cloudflare
@@ -24,7 +23,6 @@
 * share功能
 * https://web-sandbox.oaiusercontent.com/
 * 解决各种 // TODO
-* 是否有可能全部使用headless mode完成，例如docker一键部署？（能否正常生成、是否Chrome会被降速）
 * GPTs
 
 ---

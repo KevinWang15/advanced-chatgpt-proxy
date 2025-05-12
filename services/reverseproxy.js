@@ -554,7 +554,47 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                         });
                     }
                 } else {
-                    return await handleConversation(req, res, JSON.parse(requestBodyBuffer), {
+                    // Check if this is a gizmo interaction
+                    const requestData = JSON.parse(requestBodyBuffer);
+
+                    if (requestData.conversation_mode?.kind === 'gizmo_interaction' && requestData.conversation_mode?.gizmo_id) {
+                        const gizmoId = requestData.conversation_mode.gizmo_id;
+
+                        // Check if the gizmo belongs to this account
+                        const {PrismaClient} = require('@prisma/client');
+                        const prisma = new PrismaClient();
+
+                        try {
+                            const gizmo = await prisma.gizmo.findUnique({
+                                where: { id: gizmoId }
+                            });
+
+                            if (gizmo) {
+                                const isCurrentAccount = gizmo.accountName === await getRealAccountName(selectedAccount);
+
+                                if (!isCurrentAccount) {
+                                    // Gizmo belongs to a different account
+                                    const belongsTo = await anonymizationService.getOrCreateAnonymizedAccount(gizmo.accountName);
+
+                                    await prisma.$disconnect();
+                                    res.writeHead(400, {'Content-Type': 'application/json'});
+                                    return res.end(
+                                        JSON.stringify({
+                                            error: `This gizmo belongs to account ${belongsTo.fakeEmail}, current account is ${selectedAccount.email}`
+                                        })
+                                    );
+                                }
+                            }
+
+                            await prisma.$disconnect();
+                        } catch (error) {
+                            logger.error(`Error checking gizmo ownership: ${error.message}`);
+                            await prisma.$disconnect();
+                            // Continue despite error
+                        }
+                    }
+
+                    return await handleConversation(req, res, requestData, {
                         doWork,
                         selectedAccount
                     });
