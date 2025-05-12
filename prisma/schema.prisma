@@ -42,16 +42,20 @@ model GizmoAccess {
 }
 
 model Conversation {
-  id              String   @id @map("conversation_id")
-  accountName     String   @map("account_name")
-  userAccessToken String?  @map("user_access_token")
-  conversationData Json?   @map("conversation_data")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id               String   @id @map("conversation_id")
+  accountName      String   @map("account_name")
+  userAccessToken  String?  @map("user_access_token")
+  conversationData Json?    @map("conversation_data")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  gizmoId          String?  @map("gizmo_id")
 
   @@index([accountName])
   @@index([userAccessToken])
   @@index([userAccessToken, updatedAt])
+  @@index([gizmoId])
+  @@index([createdAt])
+  @@index([updatedAt])
   @@map("conversations")
 }
 
@@ -68,40 +72,40 @@ model ChatGPTAccount {
 }
 
 model DegradationCheckResult {
-  id                      String   @id @default(uuid())
-  accountName             String   @map("account_name")
+  id                        String   @id @default(uuid())
+  accountName               String   @map("account_name")
   knowledgeCutoffDateString String   @map("knowledge_cutoff_date_string")
-  knowledgeCutoffTimestamp Int      @map("knowledge_cutoff_timestamp")
-  degradation             Int
-  checkTime               DateTime @default(now()) @map("check_time")
+  knowledgeCutoffTimestamp  Int      @map("knowledge_cutoff_timestamp")
+  degradation               Int
+  checkTime                 DateTime @default(now()) @map("check_time")
 
   @@index([accountName, checkTime(sort: Desc)])
   @@map("degradation_check_results")
 }
 
 model AccountUsage {
-  id              String   @id @default(uuid())
-  accountName     String   @map("account_name")
-  model           String   // The model used (e.g., "gpt-4", "gpt-3.5-turbo")
-  timestamp       BigInt   @map("timestamp") // Store the Unix timestamp in milliseconds (5-minute buckets)
-  count           Int      @default(1) // Usage count for this time bucket
-  loadFactor      Float    @default(1.0) @map("load_factor") // Different models may contribute differently to load
-  createdAt       DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  accountName String   @map("account_name")
+  model       String
+  timestamp   BigInt   @map("timestamp")
+  count       Int      @default(1)
+  loadFactor  Float    @default(1) @map("load_factor")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  @@unique([accountName, model, timestamp]) // Ensure one entry per account-model-timestamp combination
+  @@unique([accountName, model, timestamp])
   @@index([accountName])
-  @@index([timestamp]) // For cleanup operations
+  @@index([timestamp])
   @@map("account_usage")
 }
 
 model DeepResearchTracker {
-  asyncTaskId      String   @id @map("async_task_id") // "deepresch_xxxx"
-  userAccessToken  String   @map("user_access_token")
-  conversationId   String   @map("conversation_id")
-  status           String   @default("pending") // pending, timedout, failed, succeeded
-  version          String?  @map("version") // e.g. "full"
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  asyncTaskId     String   @id @map("async_task_id")
+  userAccessToken String   @map("user_access_token")
+  conversationId  String   @map("conversation_id")
+  status          String   @default("pending")
+  version         String?  @map("version")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@index([userAccessToken])
   @@index([conversationId])
@@ -110,15 +114,15 @@ model DeepResearchTracker {
 }
 
 model Gizmo {
-  id              String   @id @map("gizmo_id") // The gizmo ID from ChatGPT
-  userAccessToken String   @map("user_access_token") // The user token who accessed this gizmo
-  accountName     String   @map("account_name") // The account used to access the gizmo
-  gizmoData       Json     @map("gizmo_data") // The full gizmo data response
-  shortUrl        String?  @map("short_url") // The short URL if available
-  name            String?  @map("name") // The gizmo name
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  lastInteracted  DateTime? @map("last_interacted") // Last time the gizmo was used
+  id              String    @id @map("gizmo_id")
+  userAccessToken String    @map("user_access_token")
+  accountName     String    @map("account_name")
+  gizmoData       Json      @map("gizmo_data")
+  shortUrl        String?   @map("short_url")
+  name            String?   @map("name")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastInteracted  DateTime? @map("last_interacted")
 
   @@index([userAccessToken])
   @@index([accountName])
