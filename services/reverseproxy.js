@@ -1205,6 +1205,9 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
         if (headers['referer']) {
             delete headers['referer'];
         }
+        if (headers['referrer']) {
+            delete headers['referrer'];
+        }
 
         let selectedAccountCookie = await getCookie(selectedAccount);
         let selectedAccountAccessToken = await getAccessToken(selectedAccount);
