@@ -466,7 +466,7 @@ if (isChatGPT()) {
 }
 
 function injectionIsReady() {
-    return window.inj1 && window.inj2 && window.inj3 && window.inj4 && window.inj5;
+    return window.inj2 && window.inj3 && window.inj4 && window.inj5;
 }
 
 

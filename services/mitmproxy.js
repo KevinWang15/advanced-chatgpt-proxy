@@ -482,10 +482,10 @@ async function handleDirectTcpTunnel(req, account, clientSocket, head) {
 
 function doReplacements(body, account) {
     let replacements = [
-        {
-            pattern: /static auth0Client=null;/g,
-            replacement: 'static auth0Client=null;static xxxxx=(function(){window.oaiapi=$1;window.inj1=true;})();'
-        },
+        // {
+        //     pattern: /static auth0Client=null;/g,
+        //     replacement: 'static auth0Client=null;static xxxxx=(function(){window.oaiapi=$1;window.inj1=true;})();'
+        // },
         {
             pattern: /let\{router:(.{1,5})}=(.{1,5})\("useNavigate"\)/g,
             replacement: 'let{router:$1}=$2("useNavigate"),xxx=(window.oairouter=(window.inj2=true)&&$1)'
