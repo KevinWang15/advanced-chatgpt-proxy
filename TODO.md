@@ -6,6 +6,8 @@
   * mapUserTokenToPendingNewConversation的处理
 
 * 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
+* 如果正在Working，那么不要刷新页面
+* 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧
 * canvas - 切换账号之后会不工作
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西
@@ -16,6 +18,7 @@
 * 各种分页（cursor）功能实现
 * 代码写得太差了找时间重新写
 * canvas当中执行代码
+* Deep Research下载PDF
 * connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡

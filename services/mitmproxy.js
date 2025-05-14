@@ -138,14 +138,18 @@ function runMitm(account) {
             }
         });
 
-        server.on('connect', (req, clientSocket, head) => {
+        server.on('connect', async (req, clientSocket, head) => {
             attachErrorHandlers(clientSocket);
             if (req.url === `aaaaa.chatgpt.com:443`) {
                 handleAaaaaMitm(clientSocket, head);
             } else if (req.url === `${INTERCEPT_DOMAIN}:443`) {
                 handleCdnOaiStaticComMitm(account, clientSocket, head);
             } else {
-                handleDirectTcpTunnel(req, account, clientSocket, head);
+                try{
+                    await handleDirectTcpTunnel(req, account, clientSocket, head);
+                }catch (ex){
+                    console.error(ex);
+                }
             }
         });
 
