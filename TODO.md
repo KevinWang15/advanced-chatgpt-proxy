@@ -7,7 +7,7 @@
 
 * 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
 * 如果正在Working，那么不要刷新页面
-* 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧
+* 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧 - 或者插件控制warm up
 * canvas - 切换账号之后会不工作
 * “…”按钮 当中 添加导出当前会话等功能
 * 去掉原版chatgpt的各种不方便的东西
