@@ -178,7 +178,7 @@ async function init() {
                 let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
                 if (deepResearchBtn) {
 
-                    let deepResearchBtnPressed = deepResearchBtn.getAttribute('aria-pressed');
+                    let deepResearchBtnPressed = document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed');
                     if (deepResearchBtnPressed === 'false') {
                         deepResearchBtnPressed = false;
                     }
@@ -188,20 +188,20 @@ async function init() {
                     if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
                         if (!deepResearchBtnPressed) {
                             deepResearchBtn.click();
-                            await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'true')
+                            await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'true')
                             await sleep(200);
                         }
                     } else {
                         if (deepResearchBtnPressed) {
                             deepResearchBtn.click();
-                            await pollUntil(() => deepResearchBtn.getAttribute('aria-pressed') === 'false')
+                            await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'false')
                             await sleep(200);
                         }
                     }
                 }
 
                 let searchBtn = document.querySelector('button[aria-label="Search"]');
-                let searchBtnPressed = searchBtn.getAttribute('aria-pressed');
+                let searchBtnPressed = document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed');
                 if (searchBtnPressed === 'false') {
                     searchBtnPressed = false;
                 }
@@ -211,13 +211,13 @@ async function init() {
                 if (task.raw_payload.force_use_search) {
                     if (!searchBtnPressed) {
                         searchBtn.click();
-                        await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'true')
+                        await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'true')
                         await sleep(200);
                     }
                 } else {
                     if (searchBtnPressed) {
                         searchBtn.click();
-                        await pollUntil(() => searchBtn.getAttribute('aria-pressed') === 'false')
+                        await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'false')
                         await sleep(200);
                     }
                 }
