@@ -4,6 +4,9 @@
 * Projects
   * 重命名Project和conversation
   * mapUserTokenToPendingNewConversation的处理
+* oai/apps/conversationDrafts
+  : 
+  "{\"drafts\":[{\"id\":\"null_thread\",\"content\":\"...\",\"timestamp\":1747470315942}],\"userId\":\"user-HtI45OkQ7SWpcrZpgciC1l1m\"}"
 
 * 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
 * 有些时候生成到一半，会断开网络连接

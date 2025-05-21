@@ -137,7 +137,7 @@ async function init() {
             await sleep(200); // js is async so changing the url doesn't immediately change the model
 
             if (!task.conversation_id) {
-                await pollUntil(() => document.querySelector('button[aria-label="Search"]'));
+                await pollUntil(() => document.querySelector('button[aria-label="Choose tool"]'));
             }
 
             if (expectedPath.includes("/c/")) {
@@ -175,53 +175,54 @@ async function init() {
                     }
                 );
 
-                let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
-                if (deepResearchBtn) {
+                if (isHighEffortMode()) {
+                    let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
+                    if (deepResearchBtn) {
 
-                    let deepResearchBtnPressed = document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed');
-                    if (deepResearchBtnPressed === 'false') {
-                        deepResearchBtnPressed = false;
+                        let deepResearchBtnPressed = document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed');
+                        if (deepResearchBtnPressed === 'false') {
+                            deepResearchBtnPressed = false;
+                        }
+                        if (deepResearchBtnPressed === 'true') {
+                            deepResearchBtnPressed = true;
+                        }
+                        if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
+                            if (!deepResearchBtnPressed) {
+                                deepResearchBtn.click();
+                                await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'true')
+                                await sleep(200);
+                            }
+                        } else {
+                            if (deepResearchBtnPressed) {
+                                deepResearchBtn.click();
+                                await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'false')
+                                await sleep(200);
+                            }
+                        }
                     }
-                    if (deepResearchBtnPressed === 'true') {
-                        deepResearchBtnPressed = true;
+
+                    let searchBtn = document.querySelector('button[aria-label="Search"]');
+                    let searchBtnPressed = document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed');
+                    if (searchBtnPressed === 'false') {
+                        searchBtnPressed = false;
                     }
-                    if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
-                        if (!deepResearchBtnPressed) {
-                            deepResearchBtn.click();
-                            await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'true')
+                    if (searchBtnPressed === 'true') {
+                        searchBtnPressed = true;
+                    }
+                    if (task.raw_payload.force_use_search) {
+                        if (!searchBtnPressed) {
+                            searchBtn.click();
+                            await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'true')
                             await sleep(200);
                         }
                     } else {
-                        if (deepResearchBtnPressed) {
-                            deepResearchBtn.click();
-                            await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'false')
+                        if (searchBtnPressed) {
+                            searchBtn.click();
+                            await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'false')
                             await sleep(200);
                         }
                     }
                 }
-
-                let searchBtn = document.querySelector('button[aria-label="Search"]');
-                let searchBtnPressed = document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed');
-                if (searchBtnPressed === 'false') {
-                    searchBtnPressed = false;
-                }
-                if (searchBtnPressed === 'true') {
-                    searchBtnPressed = true;
-                }
-                if (task.raw_payload.force_use_search) {
-                    if (!searchBtnPressed) {
-                        searchBtn.click();
-                        await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'true')
-                        await sleep(200);
-                    }
-                } else {
-                    if (searchBtnPressed) {
-                        searchBtn.click();
-                        await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'false')
-                        await sleep(200);
-                    }
-                }
-
 
                 await pollUntil(async () => {
                     let sendButton = await getSendButton();
