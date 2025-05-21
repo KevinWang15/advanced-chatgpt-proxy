@@ -137,7 +137,7 @@ async function init() {
             await sleep(200); // js is async so changing the url doesn't immediately change the model
 
             if (!task.conversation_id) {
-                await pollUntil(() => document.querySelector('button[aria-label="Choose tool"]'));
+                await pollUntil(() => document.querySelector('#prompt-textarea') || document.querySelector('button[aria-label="Choose tool"]') || document.querySelector('button[aria-label="Use a skill"]'));
             }
 
             if (expectedPath.includes("/c/")) {
