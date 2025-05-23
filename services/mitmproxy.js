@@ -511,7 +511,7 @@ function doReplacements(body, account) {
     } else {
         replacements.push(
             {
-                pattern: /function ([a-zA-Z(){ ]+?)const(\s*[a-zA-Z]+?)="threadId"/g,
+                pattern: /function ([$a-zA-Z(){ ]+?)const(\s*[a-zA-Z]+?)="threadId"/g,
                 replacement: 'function $1return window.hpcrpxx;const$2="threadId"',
                 addToHead: 'window.inj3=true;window.inj4=true;window.inj5=true;window.inj6=true;\n',
             }
