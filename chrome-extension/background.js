@@ -1,3 +1,32 @@
+// Import TabJanitor
+let tabJanitor = null;
+
+// Initialize TabJanitor when extension starts
+chrome.runtime.onInstalled.addListener(() => {
+    console.log('ChatGPT Proxy Extension installed/updated');
+    initializeTabJanitor();
+});
+
+// Also initialize on startup in case extension was already installed
+chrome.runtime.onStartup.addListener(() => {
+    console.log('ChatGPT Proxy Extension started');
+    initializeTabJanitor();
+});
+
+// Initialize immediately when background script loads
+initializeTabJanitor();
+
+async function initializeTabJanitor() {
+    try {
+        // Dynamically import the TabJanitor
+        const { default: TabJanitor } = await import('./tabJanitor.js');
+        tabJanitor = new TabJanitor();
+        console.log('Tab Janitor initialized');
+    } catch (error) {
+        console.error('Failed to initialize Tab Janitor:', error);
+    }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'OPEN_CHATGPT') {
         const url = 'https://chatgpt.com/';
