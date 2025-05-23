@@ -111,6 +111,29 @@ class TabJanitor {
             const now = Date.now();
             const tabsToClose = [];
             
+            // First, check all ChatGPT tabs to detect newly errored tabs
+            for (const tabId of this.chatGPTTabs) {
+                try {
+                    const tab = await chrome.tabs.get(tabId);
+                    const isError = await this.isErrorPage(tab);
+                    
+                    if (isError && !this.errorTabs.has(tabId)) {
+                        // Newly detected error tab
+                        this.errorTabs.set(tabId, Date.now());
+                        console.log(`Detected new error tab: ${tabId}`);
+                    } else if (!isError && this.errorTabs.has(tabId)) {
+                        // Tab recovered from error state
+                        this.errorTabs.delete(tabId);
+                        console.log(`Tab recovered from error: ${tabId}`);
+                    }
+                } catch (e) {
+                    // Tab doesn't exist anymore
+                    this.chatGPTTabs.delete(tabId);
+                    this.errorTabs.delete(tabId);
+                }
+            }
+            
+            // Then, check which error tabs should be closed
             for (const [tabId, timestamp] of this.errorTabs.entries()) {
                 if (now - timestamp > this.ERROR_WAIT_TIME) {
                     try {
