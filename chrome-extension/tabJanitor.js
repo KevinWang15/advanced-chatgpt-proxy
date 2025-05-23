@@ -50,7 +50,7 @@ class TabJanitor {
         }
     }
 
-    // Check if a ChatGPT tab is in error state by looking for oaistatic resources
+    // Check if a ChatGPT tab is in error state by looking for oaistatic resources or error messages
     async isErrorPage(tab) {
         // Only check ChatGPT tabs
         if (!tab.url || !tab.url.includes('chatgpt.com')) {
@@ -58,16 +58,30 @@ class TabJanitor {
         }
         
         try {
-            // Check if the page contains oaistatic - if not, it's an error page
+            // Check if the page contains oaistatic and doesn't have error messages
             const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: () => {
-                    return document.body && document.body.innerHTML.indexOf('oaistatic') >= 0;
+                    if (!document.body) return { hasOaistatic: false, hasError: true };
+                    
+                    const bodyText = document.body.innerText || '';
+                    const hasOaistatic = document.body.innerHTML.indexOf('oaistatic') >= 0;
+                    const hasContentError = bodyText.includes('Content failed to load');
+                    
+                    return { hasOaistatic, hasError: hasContentError };
                 }
             });
             
-            // If oaistatic is NOT found, it's an error page
-            return !results || !results[0] || !results[0].result;
+            if (!results || !results[0] || !results[0].result) {
+                return true; // Error state
+            }
+            
+            const { hasOaistatic, hasError } = results[0].result;
+            
+            // It's an error page if:
+            // 1. It has the "Content failed to load" message, OR
+            // 2. It doesn't have oaistatic resources
+            return hasError || !hasOaistatic;
         } catch (error) {
             // Script injection failed - tab is likely in an error state
             console.log(`Error checking tab ${tab.id}:`, error.message);
