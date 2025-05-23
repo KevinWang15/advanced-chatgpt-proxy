@@ -1,4 +1,6 @@
 // Import TabJanitor
+import TabJanitor from './tabJanitor.js';
+
 let tabJanitor = null;
 
 // Initialize TabJanitor when extension starts
@@ -16,10 +18,8 @@ chrome.runtime.onStartup.addListener(() => {
 // Initialize immediately when background script loads
 initializeTabJanitor();
 
-async function initializeTabJanitor() {
+function initializeTabJanitor() {
     try {
-        // Dynamically import the TabJanitor
-        const { default: TabJanitor } = await import('./tabJanitor.js');
         tabJanitor = new TabJanitor();
         console.log('Tab Janitor initialized');
     } catch (error) {
