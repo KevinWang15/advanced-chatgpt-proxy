@@ -29,7 +29,7 @@ class TabJanitor {
         chrome.tabs.onCreated.addListener(this.handleTabCreated.bind(this));
     }
 
-    categorizeTab(tab) {
+    async categorizeTab(tab) {
         if (!tab.url) return;
         
         if (tab.url.includes('chatgpt.com')) {
@@ -37,7 +37,8 @@ class TabJanitor {
             this.nonChatGPTTabs.delete(tab.id);
             
             // Check if it's in error state
-            if (this.isErrorPage(tab)) {
+            const isError = await this.isErrorPage(tab);
+            if (isError) {
                 this.errorTabs.set(tab.id, Date.now());
             } else {
                 this.errorTabs.delete(tab.id);
@@ -49,34 +50,29 @@ class TabJanitor {
         }
     }
 
-    isErrorPage(tab) {
-        // Check for Chrome error pages
-        const errorUrls = [
-            'chrome-error://',
-            'data:text/html,chromewebdata',
-            'about:blank'
-        ];
-        
-        if (errorUrls.some(errorUrl => tab.url.startsWith(errorUrl))) {
-            return true;
+    // Check if a ChatGPT tab is in error state by looking for oaistatic resources
+    async isErrorPage(tab) {
+        // Only check ChatGPT tabs
+        if (!tab.url || !tab.url.includes('chatgpt.com')) {
+            return false;
         }
         
-        // Check title for common error messages
-        const errorTitles = [
-            'This site can't be reached',
-            'No internet',
-            'Aw, Snap!',
-            'He's Dead, Jim!',
-            'Something went wrong',
-            'Error loading page'
-        ];
-        
-        if (tab.title && errorTitles.some(errorTitle => 
-            tab.title.toLowerCase().includes(errorTitle.toLowerCase()))) {
+        try {
+            // Check if the page contains oaistatic - if not, it's an error page
+            const results = await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: () => {
+                    return document.body && document.body.innerHTML.indexOf('oaistatic') >= 0;
+                }
+            });
+            
+            // If oaistatic is NOT found, it's an error page
+            return !results || !results[0] || !results[0].result;
+        } catch (error) {
+            // Script injection failed - tab is likely in an error state
+            console.log(`Error checking tab ${tab.id}:`, error.message);
             return true;
         }
-        
-        return false;
     }
 
     async handleTabUpdate(tabId, changeInfo, tab) {
@@ -105,7 +101,9 @@ class TabJanitor {
                 if (now - timestamp > this.ERROR_WAIT_TIME) {
                     try {
                         const tab = await chrome.tabs.get(tabId);
-                        if (this.isErrorPage(tab)) {
+                        const isError = await this.isErrorPage(tab);
+                        
+                        if (isError) {
                             tabsToClose.push(tabId);
                         } else {
                             // Tab recovered, remove from error tracking
