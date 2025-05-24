@@ -6,7 +6,7 @@ class TabJanitor {
         this.chatGPTTabs = new Set();
         this.isActivating = false;
         this.MIN_CHATGPT_TABS = 6;
-        this.ERROR_WAIT_TIME = 10000; // 10 seconds
+        this.ERROR_WAIT_TIME = 60000; // 10 seconds
         this.NON_CHATGPT_MAX_AGE = 60000; // 1 minute
         
         this.init();
