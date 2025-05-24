@@ -199,6 +199,7 @@ const responseCache = new Map();
 function handleAaaaaMitm(clientSocket, head) {
     const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
+        tlsClientSocket.on('close', () => tlsServer.close());
         let targetSocket;
 
         if (config.worker.centralServer.startsWith('wss://')) {
