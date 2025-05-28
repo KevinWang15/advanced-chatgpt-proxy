@@ -41,142 +41,108 @@
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    /**
-     * Sets up an improved MutationObserver to manage specific elements
-     * in a potentially dynamic SPA environment by hiding them.
-     */
     function observeAndManageElements() {
+        // Define what to hide
+        const hideByAriaLabel = new Set([
+            'Turn on temporary chat', '开启临时聊天', '開啟臨時聊話',
+            'Share', '共享', '分享',
+            'Open Profile Menu', '打开"个人资料"菜单', '開啟設定檔功能表'
+        ]);
 
-        // --- Core processing logic for a single node ---
-        const processNode = (node) => {
-            // 1. Ensure it's an Element node we care about processing directly
-            if (!(node instanceof Element)) {
-                return false; // Indicate node was not processed (or not an element)
-            }
+        const hideByInnerText = new Set([
+            'GPTs', 'GPT',
+            'Operator', 'Codex', 'New project', '新項目', 'Sora',
+            'Library', '库', '庫',
+        ]);
 
-            let nodeAltered = false; // Flag to track if this node was hidden/modified
+        // Process a single element
+        const processElement = (element) => {
+            if (!(element instanceof Element)) return;
 
-            // --- Rule Application ---
+            // Skip already hidden elements
+            if (element.style.display === 'none') return;
 
-            // Rule 1: Check if the node *itself* is the button to hide
-            if (node.tagName === 'BUTTON' && (['Turn on temporary chat', '开启临时聊天', '開啟臨時聊天'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Share', '共享', '分享'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Open Profile Menu', '打开“个人资料”菜单', '開啟設定檔功能表'].indexOf(node.getAttribute('aria-label')) >= 0)) {
-                // Check if the element is not already hidden via display: none
-                if (window.getComputedStyle(node).display !== 'none') {
-                    node.style.display = 'none';
-                    nodeAltered = true;
-                }
-                // If already display: none, do nothing
-            }
-            // Only proceed if node wasn't hidden by Rule 1
-            else if (['BUTTON', 'DIV', 'ARTICLE', 'A'].includes(node.tagName)) {
-                const parent = node.parentElement;
-                const requiredAncestorClass = "group/sidebar";
-                const forbiddenTexts = ["Explore GPTs", '探索 GPT', 'Operator', 'Sora', 'Library', '库', '庫'];
-
-                // Rule 2: Check if any ancestor has the required class AND text matches list
-                // Build a CSS selector for the class, escaping special characters like '/'
-                // The regex escapes common CSS meta-characters.
-                const ancestorSelector = '.' + requiredAncestorClass.replace(/([ #;&,.+*~\':"!^$\[\]()=>|\/])/g, '\\$1');
-
-                // Use node.closest() to check the node itself and its ancestors.
-                if (node.tagName === 'A' && node.closest(ancestorSelector) && forbiddenTexts.includes(node.innerText.trim())) {
-                    // Check if the element is not already hidden via display: none
-                    if (window.getComputedStyle(node).display !== 'none') {
-                        // console.log(`Rule 2: Hiding element "${node.innerText.trim()}" with ancestor "${requiredAncestorClass}":`, node);
-                        node.style.display = 'none';
-                        nodeAltered = true; // Node was visually altered
-                    }
-                    // If already display: none, do nothing
-                } else {
-                    if (node.style.opacity) {
-                        delete node.style.opacity;
-                        delete node.style.cursor;
-                        delete node.style.pointerEvents;
-                        nodeAltered = true;
-                    }
+            // Check aria-label (only if attribute exists)
+            if (element.hasAttribute('aria-label')) {
+                const ariaLabel = element.getAttribute('aria-label');
+                if (hideByAriaLabel.has(ariaLabel)) {
+                    element.style.display = 'none';
+                    return;
                 }
             }
-            return nodeAltered; // Return true if node was hidden/modified
-        };
 
-        // --- Process a node and potentially its relevant descendants ---
-        const processNodeAndRelevantDescendants = (node) => {
-            // 1. Process the node itself
-            processNode(node);
-
-            // 2. If the node itself wasn't modified (or potentially hidden) AND it's an element
-            //    that could contain target elements, check its descendants.
-            //    Even if a node was hidden, its descendants might still be processed
-            //    if they are added later independently, but processing them now is harmless
-            //    and covers cases where a container is added *with* target children.
-            //    We check 'instanceof Element' again for safety.
-            if (node instanceof Element) {
-                // Find relevant elements *within* this node
-                // Note: querySelectorAll will NOT find elements within a node that
-                // has been set to `display: none` *by an ancestor's style or class*.
-                // However, it WILL find descendants if the current `node` itself
-                // was just set to `display: none` inline. This ensures children of
-                // targeted containers are also processed correctly during the initial scan
-                // or when the container is added.
-                node.querySelectorAll('button, div, article, a').forEach(processNode);
+            // Check innerText only for elements likely to have text
+            // Skip elements with many children (likely containers)
+            if (element.childElementCount < 5) {
+                const text = element.innerText?.trim();
+                if (text && text.length < 50 && hideByInnerText.has(text)) {
+                    element.style.display = 'none';
+                }
             }
         };
 
+        // Initial scan - only check elements likely to have aria-label or be interactive
+        const scanDocument = () => {
+            // Target common interactive elements and those with aria-label
+            const selector = '[aria-label], button, a, [role="button"], [role="link"]';
+            document.querySelectorAll(selector).forEach(processElement);
 
-        // --- MutationObserver Callback ---
-        const mutationCallback = (mutationsList) => {
-            for (const mutation of mutationsList) {
+            // For innerText, check common text containers
+            document.querySelectorAll('a, button, span, div:not([class*="container"])').forEach(el => {
+                if (el.childElementCount < 5) {
+                    processElement(el);
+                }
+            });
+        };
+
+        // Observer for new elements
+        const observer = new MutationObserver((mutations) => {
+            const processed = new WeakSet(); // Avoid processing same element multiple times
+
+            mutations.forEach(mutation => {
                 if (mutation.type === 'childList') {
-                    // Process all nodes added in this mutation AND their relevant descendants
-                    mutation.addedNodes.forEach(processNodeAndRelevantDescendants);
-                    // Note: No explicit handling for removedNodes needed unless cleanup is required.
-                } else if (mutation.type === 'attributes') {
-                    // If an attribute (specifically aria-label) changed, re-process the target node.
-                    if (mutation.target instanceof Element) {
-                        processNode(mutation.target); // Hides or modifies based on new attribute
-                    }
+                    mutation.addedNodes.forEach(node => {
+                        if (node instanceof Element && !processed.has(node)) {
+                            processed.add(node);
+                            processElement(node);
+
+                            // Only scan descendants if node isn't huge
+                            if (node.childElementCount < 100) {
+                                node.querySelectorAll('[aria-label], button, a, span').forEach(child => {
+                                    if (!processed.has(child)) {
+                                        processed.add(child);
+                                        processElement(child);
+                                    }
+                                });
+                            }
+                        }
+                    });
+                } else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
+                    processElement(mutation.target);
                 }
-                // characterData changes are ignored as per config.
-            }
+            });
+        });
+
+        // Start observing
+        const start = () => {
+            scanDocument();
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['aria-label']
+            });
         };
 
-        // --- Observer Configuration ---
-        const config = {
-            childList: true,        // Monitor additions/removals of nodes
-            subtree: true,          // Monitor the entire subtree under the target
-            attributes: true,       // Monitor attribute changes
-            attributeFilter: ['aria-label'] // Focus attribute monitoring
-            // characterData: false, // Default to false for performance
-        };
-
-        // --- Target Node ---
-        const targetNode = document.body;
-
-        // --- Initial Scan & Observer Start ---
-        const runScanAndObserve = () => {
-            // console.log('Running initial scan...');
-            // Initial scan: Process relevant elements already in the DOM and their descendants
-            targetNode.querySelectorAll('button, div, article').forEach(processNodeAndRelevantDescendants);
-
-            // Create and start the observer
-            const observer = new MutationObserver(mutationCallback);
-            observer.observe(targetNode, config);
-            // console.log('MutationObserver started.');
-            // return observer; // Optional: return for later disconnection
-        };
-
-        // --- Readiness Check ---
-        // Ensure the DOM is ready before scanning and observing
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', runScanAndObserve);
+            document.addEventListener('DOMContentLoaded', start);
         } else {
-            // DOM is already ready
-            runScanAndObserve();
+            start();
         }
     }
 
+// Call the function to start
     observeAndManageElements();
-
     setTimeout(() => {
         new FloatingWidget({
             menuItems: [
@@ -189,6 +155,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ],
         })
     }, 1000);
+
+
+    const style = document.createElement('style');
+
+    // Set the CSS content
+    style.textContent = `
+  #conversation-header-actions {
+    display: none;
+  }
+`;
+
+    // Append the style element to the document head
+    document.head.appendChild(style);
 
 });
 
@@ -397,7 +376,7 @@ class FloatingWidget {
             if (e.pointerId !== activeId) return;      // ignore stray pointers
             if (!this.isDragging) {
                 const dx = Math.abs(e.clientX - (this.widget.getBoundingClientRect().left + this.offsetX));
-                const dy = Math.abs(e.clientY - (this.widget.getBoundingClientRect().top  + this.offsetY));
+                const dy = Math.abs(e.clientY - (this.widget.getBoundingClientRect().top + this.offsetY));
                 if (dx > 3 || dy > 3) {
                     this.isDragging = true;
                     if (this.isExpanded) this.toggleMenu(false);
@@ -418,7 +397,7 @@ class FloatingWidget {
             activeId = null;
             this.widget.style.transition = '';
             document.removeEventListener('pointermove', moveDrag);
-            document.removeEventListener('pointerup',   endDrag);
+            document.removeEventListener('pointerup', endDrag);
         };
 
         /* pointerdown starts everything */
@@ -426,13 +405,16 @@ class FloatingWidget {
             if (e.pointerType === 'mouse' && e.button !== 0) return;   // ignore right-click
             startDrag(e);
             document.addEventListener('pointermove', moveDrag);
-            document.addEventListener('pointerup',   endDrag);
+            document.addEventListener('pointerup', endDrag);
             e.preventDefault();    // still good practice here
         });
 
         /* tap / click opens the menu if it wasn’t a drag ------------ */
         this.widget.addEventListener('click', (e) => {
-            if (this.justDragged) { this.justDragged = false; return; }
+            if (this.justDragged) {
+                this.justDragged = false;
+                return;
+            }
             this.createRippleEffect(e);
             this.toggleMenu();
         });
