@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // --- Rule Application ---
 
             // Rule 1: Check if the node *itself* is the button to hide
-            if (node.tagName === 'BUTTON' && (['Temporary', '临时', '臨時'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Share', '共享', '分享'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Open Profile Menu', '打开“个人资料”菜单', '開啟設定檔功能表'].indexOf(node.getAttribute('aria-label')) >= 0)) {
+            if (node.tagName === 'BUTTON' && (['Turn on temporary chat', '开启临时聊天', '開啟臨時聊天'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Share', '共享', '分享'].indexOf(node.getAttribute('aria-label')) >= 0 || ['Open Profile Menu', '打开“个人资料”菜单', '開啟設定檔功能表'].indexOf(node.getAttribute('aria-label')) >= 0)) {
                 // Check if the element is not already hidden via display: none
                 if (window.getComputedStyle(node).display !== 'none') {
                     node.style.display = 'none';
