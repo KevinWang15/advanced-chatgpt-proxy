@@ -739,9 +739,9 @@ function genExtensionConfigurationHtml(account) {
                         document.querySelector('.loader').style.display = 'none';
                         
                         
-                        window.postMessage({
-                            type: 'OPEN_CHATGPT',
-                        }, '*');
+                        // window.postMessage({
+                        //     type: 'OPEN_CHATGPT',
+                        // }, '*');
                         
                         setTimeout(()=>{
                             window.close();

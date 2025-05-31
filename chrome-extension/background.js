@@ -28,12 +28,12 @@ function initializeTabJanitor() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'OPEN_CHATGPT') {
-        const url = 'https://chatgpt.com/';
-        for (let i = 0; i < 5; i++) {
-            chrome.tabs.create({url});
-        }
-    }
+    // if (message.type === 'OPEN_CHATGPT') {
+    //     const url = 'https://chatgpt.com/';
+    //     for (let i = 0; i < 5; i++) {
+    //         chrome.tabs.create({url});
+    //     }
+    // }
 
     if (message.type === 'SETUP_EXTENSION') {
         const {accountData} = message;
