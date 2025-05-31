@@ -1,288 +1,151 @@
-// Tab Janitor - Manages ChatGPT tabs
+// ChatGPT Tab Janitor – minimalist edition
+// background.js  (or import where you need it)
+
+/* eslint-disable no-console */
 class TabJanitor {
+    // ── configuration ────────────────────────────────────────────────────────────
+    static MIN_TABS = 6;
+    static MAX_TABS = 10;
+    static ERROR_WAIT = 60_000;        // ms a tab may remain in an error state
+    static CHECK_EVERY = 10_000;       // ms between maintenance passes
+    static CYCLE_DELAY = 2_000;        // ms to keep each tab in front
+
+    // ── bookkeeping ─────────────────────────────────────────────────────────────
+    #chatTabs   = new Set();           // ids of *all* ChatGPT tabs
+    #errorSince = new Map();           // tabId → first time we saw it broken
+    #cycling    = false;
+
     constructor() {
-        this.errorTabs = new Map(); // tabId -> timestamp
-        this.nonChatGPTTabs = new Map(); // tabId -> timestamp
-        this.chatGPTTabs = new Set();
-        this.isActivating = false;
-        this.MIN_CHATGPT_TABS = 6;
-        this.ERROR_WAIT_TIME = 60000; // 10 seconds
-        this.NON_CHATGPT_MAX_AGE = 60000; // 1 minute
-        
-        this.init();
+        this.#bootstrap();
     }
 
-    async init() {
-        // Get all existing tabs on startup
-        const tabs = await chrome.tabs.query({});
-        tabs.forEach(tab => this.categorizeTab(tab));
-        
-        // Start monitoring loops
-        this.startErrorTabMonitoring();
-        this.startNonChatGPTTabMonitoring();
-        this.startChatGPTTabMaintenance();
-        this.startTabActivation();
-        
-        // Listen for tab updates
-        chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
-        chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
-        chrome.tabs.onCreated.addListener(this.handleTabCreated.bind(this));
+    /* ────────────────────────────────────────────────────────────────────────────
+       Start-up: find existing ChatGPT tabs and begin the two loops.           */
+    async #bootstrap() {
+        const tabs = await chrome.tabs.query({ url: '*://chatgpt.com/*' });
+        tabs.forEach(t => this.#chatTabs.add(t.id));
+
+        // Live tab events
+        chrome.tabs.onCreated.addListener(tab => this.#maybeAdd(tab));
+        chrome.tabs.onUpdated.addListener((id, info, tab) => {
+            if (info.url) this.#maybeAdd(tab);                     // URL changed
+            if (info.status === 'complete') this.#checkTab(tab);  // finished loading
+        });
+        chrome.tabs.onRemoved.addListener(id => {
+            this.#chatTabs.delete(id);
+            this.#errorSince.delete(id);
+        });
+
+        // Periodic tasks
+        setInterval(() => this.#maintenance(), TabJanitor.CHECK_EVERY);
+        setInterval(() => this.#cycleTabs(), 30_000);           // every 30 s
     }
 
-    async categorizeTab(tab) {
-        if (!tab.url) return;
-        
-        if (tab.url.includes('chatgpt.com')) {
-            this.chatGPTTabs.add(tab.id);
-            this.nonChatGPTTabs.delete(tab.id);
-            
-            // Check if it's in error state
-            const isError = await this.isErrorPage(tab);
-            if (isError) {
-                this.errorTabs.set(tab.id, Date.now());
-            } else {
-                this.errorTabs.delete(tab.id);
-            }
+    /* ────────────────────────────────────────────────────────────────────────────
+       Add / remove a tab from our sets depending on its URL                    */
+    #maybeAdd(tab) {
+        if (tab.url && tab.url.includes('chatgpt.com')) {
+            this.#chatTabs.add(tab.id);
+            this.#checkTab(tab);
         } else {
-            this.nonChatGPTTabs.set(tab.id, Date.now());
-            this.chatGPTTabs.delete(tab.id);
-            this.errorTabs.delete(tab.id);
+            this.#chatTabs.delete(tab.id);
+            this.#errorSince.delete(tab.id);
         }
     }
 
-    // Check if a ChatGPT tab is in error state by looking for oaistatic resources or error messages
-    async isErrorPage(tab) {
-        // Only check ChatGPT tabs
-        if (!tab.url || !tab.url.includes('chatgpt.com')) {
-            return false;
-        }
-        
+    /* ────────────────────────────────────────────────────────────────────────────
+       Decide whether the page looks broken (very cheap heuristics).            */
+    async #isError(tabId) {
         try {
-            // Check if the page contains oaistatic and doesn't have error messages
-            const results = await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
+            const [{ result }] = await chrome.scripting.executeScript({
+                target: { tabId },
                 func: () => {
-                    if (!document.body) return { hasOaistatic: false, hasError: true };
-                    
-                    const bodyText = document.body.innerText || '';
-                    const hasOaistatic = document.body.innerHTML.indexOf('oaistatic') >= 0;
-                    const hasContentError = bodyText.includes('Content failed to load');
-                    
-                    return { hasOaistatic, hasError: hasContentError };
+                    // If we cannot access the page or it has a “Content failed to load”
+                    // string or missing oaistatic assets, treat as error.
+                    const body = document.body;
+                    if (!body) return true;
+                    const txt = body.innerText || '';
+                    return txt.includes('Content failed to load') ||
+                        body.innerHTML.indexOf('oaistatic') === -1;
                 }
             });
-            
-            if (!results || !results[0] || !results[0].result) {
-                return true; // Error state
-            }
-            
-            const { hasOaistatic, hasError } = results[0].result;
-            
-            // It's an error page if:
-            // 1. It has the "Content failed to load" message, OR
-            // 2. It doesn't have oaistatic resources
-            return hasError || !hasOaistatic;
-        } catch (error) {
-            // Script injection failed - tab is likely in an error state
-            console.log(`Error checking tab ${tab.id}:`, error.message);
-            return true;
+            return Boolean(result);
+        } catch {
+            return true;  // script injection failed: tab is probably a blank error
         }
     }
 
-    async handleTabUpdate(tabId, changeInfo, tab) {
-        if (changeInfo.status === 'complete' || changeInfo.url) {
-            this.categorizeTab(tab);
+    /* ────────────────────────────────────────────────────────────────────────────
+       Maintenance pass:                                                         */
+    async #maintenance() {
+        const now = Date.now();
+
+        // 1) Drop closed tabs from our set
+        const openTabs = new Set((await chrome.tabs.query({})).map(t => t.id));
+        [...this.#chatTabs].forEach(id => { if (!openTabs.has(id)) this.#chatTabs.delete(id); });
+
+        // 2) Error handling & health counting
+        let healthy = 0;
+        for (const id of this.#chatTabs) {
+            const errored = await this.#isError(id);
+            if (errored) {
+                if (!this.#errorSince.has(id)) this.#errorSince.set(id, now);
+                else if (now - this.#errorSince.get(id) >= TabJanitor.ERROR_WAIT) {
+                    // Give up – close it
+                    await chrome.tabs.remove(id).catch(() => { /* tab vanished */ });
+                    this.#chatTabs.delete(id);
+                    this.#errorSince.delete(id);
+                    console.log(`Closed persistent error tab ${id}`);
+                }
+            } else {
+                this.#errorSince.delete(id);
+                healthy++;
+            }
+        }
+
+        // 3) Keep at least MIN_TABS healthy, but max TOTAL tabs = MAX_TABS
+        const need = Math.max(0, TabJanitor.MIN_TABS - healthy);
+        const room = Math.max(0, TabJanitor.MAX_TABS - this.#chatTabs.size);
+        const toOpen = Math.min(need, room);
+
+        for (let i = 0; i < toOpen; i++) {
+            const { id } = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false });
+            this.#chatTabs.add(id);
+        }
+
+        // 4) If we somehow exceed MAX_TABS, close extras (oldest first)
+        if (this.#chatTabs.size > TabJanitor.MAX_TABS) {
+            const surplus = [...this.#chatTabs].slice(TabJanitor.MAX_TABS);
+            surplus.forEach(id => chrome.tabs.remove(id).catch(() => {}));
+            surplus.forEach(id => this.#chatTabs.delete(id));
         }
     }
 
-    handleTabRemoved(tabId) {
-        this.chatGPTTabs.delete(tabId);
-        this.nonChatGPTTabs.delete(tabId);
-        this.errorTabs.delete(tabId);
+    /* ────────────────────────────────────────────────────────────────────────────
+       Light check triggered by onUpdated('complete') so we don’t wait full
+       10 s before noticing a new error state.                                   */
+    async #checkTab(tab) {
+        if (!(await this.#isError(tab.id))) this.#errorSince.delete(tab.id);
+        else this.#errorSince.set(tab.id, Date.now());
     }
 
-    handleTabCreated(tab) {
-        this.categorizeTab(tab);
-    }
+    /* ────────────────────────────────────────────────────────────────────────────
+       Bring each ChatGPT tab to the foreground in turn.                        */
+    async #cycleTabs() {
+        if (this.#cycling) return;      // keep one cycle at a time
+        this.#cycling = true;
 
-    // Monitor error tabs and close them after 10 seconds
-    startErrorTabMonitoring() {
-        setInterval(async () => {
-            const now = Date.now();
-            const tabsToClose = [];
-            
-            // First, check all ChatGPT tabs to detect newly errored tabs
-            for (const tabId of this.chatGPTTabs) {
-                try {
-                    const tab = await chrome.tabs.get(tabId);
-                    const isError = await this.isErrorPage(tab);
-                    
-                    if (isError && !this.errorTabs.has(tabId)) {
-                        // Newly detected error tab
-                        this.errorTabs.set(tabId, Date.now());
-                        console.log(`Detected new error tab: ${tabId}`);
-                    } else if (!isError && this.errorTabs.has(tabId)) {
-                        // Tab recovered from error state
-                        this.errorTabs.delete(tabId);
-                        console.log(`Tab recovered from error: ${tabId}`);
-                    }
-                } catch (e) {
-                    // Tab doesn't exist anymore
-                    this.chatGPTTabs.delete(tabId);
-                    this.errorTabs.delete(tabId);
-                }
-            }
-            
-            // Then, check which error tabs should be closed
-            for (const [tabId, timestamp] of this.errorTabs.entries()) {
-                if (now - timestamp > this.ERROR_WAIT_TIME) {
-                    try {
-                        const tab = await chrome.tabs.get(tabId);
-                        const isError = await this.isErrorPage(tab);
-                        
-                        if (isError) {
-                            tabsToClose.push(tabId);
-                        } else {
-                            // Tab recovered, remove from error tracking
-                            this.errorTabs.delete(tabId);
-                        }
-                    } catch (e) {
-                        // Tab doesn't exist anymore
-                        this.errorTabs.delete(tabId);
-                    }
-                }
-            }
-            
-            // Close error tabs
-            for (const tabId of tabsToClose) {
-                try {
-                    await chrome.tabs.remove(tabId);
-                    console.log(`Closed error tab: ${tabId}`);
-                } catch (e) {
-                    console.error(`Failed to close tab ${tabId}:`, e);
-                }
-            }
-        }, 5000); // Check every 5 seconds
-    }
-
-    // Monitor non-ChatGPT tabs and close them after 1 minute
-    startNonChatGPTTabMonitoring() {
-        setInterval(async () => {
-            const now = Date.now();
-            const tabsToClose = [];
-            
-            for (const [tabId, timestamp] of this.nonChatGPTTabs.entries()) {
-                if (now - timestamp > this.NON_CHATGPT_MAX_AGE) {
-                    tabsToClose.push(tabId);
-                }
-            }
-            
-            // Close old non-ChatGPT tabs
-            for (const tabId of tabsToClose) {
-                try {
-                    await chrome.tabs.remove(tabId);
-                    console.log(`Closed non-ChatGPT tab: ${tabId}`);
-                } catch (e) {
-                    console.error(`Failed to close tab ${tabId}:`, e);
-                }
-            }
-        }, 10000); // Check every 10 seconds
-    }
-
-    // Maintain minimum number of ChatGPT tabs
-    startChatGPTTabMaintenance() {
-        setInterval(async () => {
-            // Clean up closed tabs from our set
-            const allTabs = await chrome.tabs.query({});
-            const existingTabIds = new Set(allTabs.map(tab => tab.id));
-            
-            // Remove tabs that no longer exist
-            for (const tabId of this.chatGPTTabs) {
-                if (!existingTabIds.has(tabId)) {
-                    this.chatGPTTabs.delete(tabId);
-                }
-            }
-            
-            // Count healthy ChatGPT tabs (not in error state)
-            let healthyChatGPTTabCount = 0;
-            for (const tabId of this.chatGPTTabs) {
-                if (!this.errorTabs.has(tabId)) {
-                    healthyChatGPTTabCount++;
-                }
-            }
-            
-            // Open new tabs if needed
-            const tabsToOpen = this.MIN_CHATGPT_TABS - healthyChatGPTTabCount;
-            if (tabsToOpen > 0) {
-                console.log(`Opening ${tabsToOpen} new ChatGPT tabs`);
-                for (let i = 0; i < tabsToOpen; i++) {
-                    try {
-                        const tab = await chrome.tabs.create({ 
-                            url: 'https://chatgpt.com/',
-                            active: false
-                        });
-                        this.chatGPTTabs.add(tab.id);
-                    } catch (e) {
-                        console.error('Failed to create ChatGPT tab:', e);
-                    }
-                }
-            }
-        }, 15000); // Check every 15 seconds
-    }
-
-    // Activate tabs randomly
-    startTabActivation() {
-        const scheduleNextActivation = () => {
-            // Random delay between 0-60 seconds
-            const delay = Math.random() * 60000;
-            
-            setTimeout(async () => {
-                if (!this.isActivating) {
-                    await this.activateTabsSequentially();
-                }
-                scheduleNextActivation();
-            }, delay);
-        };
-        
-        scheduleNextActivation();
-    }
-
-    async activateTabsSequentially() {
-        this.isActivating = true;
-        
         try {
-            // Get all ChatGPT tabs in order
             const tabs = await chrome.tabs.query({ url: '*://chatgpt.com/*' });
-            
-            console.log(`Starting tab activation cycle for ${tabs.length} tabs`);
-            
             for (const tab of tabs) {
-                try {
-                    // Activate the tab
-                    await chrome.tabs.update(tab.id, { active: true });
-                    
-                    // Focus the window containing the tab
-                    if (tab.windowId) {
-                        await chrome.windows.update(tab.windowId, { focused: true });
-                    }
-                    
-                    // Random pause between 1-5 seconds
-                    const pauseTime = 1000 + Math.random() * 4000;
-                    await new Promise(resolve => setTimeout(resolve, pauseTime));
-                    
-                } catch (e) {
-                    console.error(`Failed to activate tab ${tab.id}:`, e);
-                }
+                await chrome.tabs.update(tab.id, { active: true });
+                await chrome.windows.update(tab.windowId, { focused: true });
+                await new Promise(r => setTimeout(r, TabJanitor.CYCLE_DELAY));
             }
-            
-            console.log('Tab activation cycle completed');
-        } catch (e) {
-            console.error('Error during tab activation:', e);
         } finally {
-            this.isActivating = false;
+            this.#cycling = false;
         }
     }
 }
 
-// Export for use in background.js
 export default TabJanitor;
