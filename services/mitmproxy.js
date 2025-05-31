@@ -745,7 +745,7 @@ function genExtensionConfigurationHtml(account) {
                         
                         setTimeout(()=>{
                             window.close();
-                        },1000);
+                        },60000);
                     }
                 }, false);
 
