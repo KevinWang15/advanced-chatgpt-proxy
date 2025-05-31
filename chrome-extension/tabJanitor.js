@@ -5,7 +5,7 @@ class TabJanitor {
     static GRACE_MS    = 60_000;          // new tab counts as healthy for 60 s
     static ERROR_WAIT  = 60_000;          // must stay broken this long to close
     static CHECK_EVERY = 10_000;          // maintenance pass interval
-    static CYCLE_DELAY = 2_000;           // bring each tab front-and-center
+    static CYCLE_DELAY = 60_000;           // bring each tab front-and-center
 
     /* ── bookkeeping ───────────────────────────────────────────────────────── */
     #chatTabs   = new Set();              // ids of *all* ChatGPT tabs
