@@ -5,8 +5,6 @@ class TabJanitor {
     static GRACE_MS    = 60_000;          // new tab counts as healthy for 60 s
     static ERROR_WAIT  = 60_000;          // must stay broken this long to close
     static CHECK_EVERY = 10_000;          // maintenance pass interval
-    static CYCLE_DELAY = 60_000;           // bring each tab front-and-center
-
     /* ── bookkeeping ───────────────────────────────────────────────────────── */
     #chatTabs   = new Set();              // ids of *all* ChatGPT tabs
     #openedAt   = new Map();              // tabId → Date.now() when first seen
@@ -152,7 +150,7 @@ class TabJanitor {
             for (const t of tabs) {
                 await chrome.tabs.update(t.id, { active: true });
                 await chrome.windows.update(t.windowId, { focused: true });
-                await new Promise(r => setTimeout(r, TabJanitor.CYCLE_DELAY));
+                await new Promise(r => setTimeout(r, 60_000*Math.random()));
             }
         } finally { this.#cycling = false; }
     }
