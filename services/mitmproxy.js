@@ -195,6 +195,7 @@ function buildHttpResponseHeaders(realResp, bodyBuffer) {
 }
 
 const responseCache = new Map();
+const cookieUpdateTimestamps = new Map(); // Track last cookie update time per account
 
 function handleAaaaaMitm(clientSocket, head) {
     const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
@@ -286,6 +287,79 @@ function handleCdnOaiStaticComMitm(account, clientSocket, head) {
             const [requestLine] = requestRaw.split('\r\n');
             const [method, path] = requestLine.split(' ').slice(0, 2) || [];
 
+            if (method === 'PUT' && path === '/cookies') {
+                // Extract Content-Length from headers
+                const contentLengthMatch = requestRaw.match(/Content-Length:\s*(\d+)/i);
+                const contentLength = contentLengthMatch ? parseInt(contentLengthMatch[1], 10) : 0;
+                
+                if (contentLength > 0) {
+                    // Read the request body
+                    let bodyData = '';
+                    let bytesRead = 0;
+                    
+                    const readBody = () => {
+                        return new Promise((resolve) => {
+                            const onData = (chunk) => {
+                                bodyData += chunk.toString();
+                                bytesRead += chunk.length;
+                                
+                                if (bytesRead >= contentLength) {
+                                    tlsClientSocket.removeListener('data', onData);
+                                    resolve();
+                                }
+                            };
+                            
+                            tlsClientSocket.on('data', onData);
+                        });
+                    };
+                    
+                    await readBody();
+                    
+                    try {
+                        const cookieUpdate = JSON.parse(bodyData);
+                        console.log('Cookie update received via MITM proxy:', cookieUpdate);
+                        
+                        // Check if we've updated this account's cookie recently (within 1 hour)
+                        const lastUpdateTime = cookieUpdateTimestamps.get(account.name);
+                        const now = Date.now();
+                        const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+                        
+                        if (lastUpdateTime && (now - lastUpdateTime) < oneHour) {
+                            console.log(`Skipping cookie update for account ${account.name} - updated ${Math.round((now - lastUpdateTime) / (60 * 1000))} minutes ago`);
+                            return;
+                        }
+                        
+                        // Update the account cookie in config
+                        const { getAccountByName, updateAccount } = require('../admin/middleware/configManager');
+                        const currentAccount = getAccountByName(account.name);
+                        
+                        if (currentAccount) {
+                            const updatedAccount = {
+                                ...currentAccount,
+                                cookie: cookieUpdate.sessionToken
+                            };
+                            
+                            const result = updateAccount(account.name, updatedAccount);
+                            if (result.success) {
+                                cookieUpdateTimestamps.set(account.name, now); // Remember the update time
+                                console.log(`Updated cookie for account ${account.name} in config`);
+                            } else {
+                                console.error(`Failed to update cookie for account ${account.name}:`, result.message);
+                            }
+                        } else {
+                            console.error(`Account ${account.name} not found in config`);
+                        }
+                    } catch (error) {
+                        console.error('Error parsing cookie update:', error, 'Body:', bodyData);
+                    }
+                }
+                
+                // Send a simple 200 OK response
+                const response = 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n';
+                tlsClientSocket.write(response);
+                tlsClientSocket.end();
+                return;
+            }
             // Create cache key from the request method and path
             const cacheKey = `${method}:${path}`;
 

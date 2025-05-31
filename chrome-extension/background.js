@@ -69,6 +69,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 
+// Listen for cookie changes to capture session token updates
+chrome.cookies.onChanged.addListener((changeInfo) => {
+    if (changeInfo.cookie.name === '__Secure-next-auth.session-token' && 
+        changeInfo.cookie.domain === '.chatgpt.com' && 
+        !changeInfo.removed) {
+        
+        const newSessionToken = changeInfo.cookie.value;
+        console.log('Captured cookie update from onChanged:', newSessionToken);
+        
+        // Update the stored account data with new session token
+        chrome.storage.local.get(['currentAccountData'], (result) => {
+            if (result.currentAccountData && result.currentAccountData.cookie !== newSessionToken) {
+                const updatedAccountData = {
+                    ...result.currentAccountData,
+                    cookie: newSessionToken
+                };
+                
+                chrome.storage.local.set({currentAccountData: updatedAccountData}, () => {
+                    console.log('Account data updated with new session token from cookie change');
+                });
+
+                // Send PUT request to cdn.oaistatic.com/cookies
+                fetch('https://cdn.oaistatic.com/cookies', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        sessionToken: newSessionToken,
+                    })
+                }).then(response => {
+                    console.log('Cookie update sent to cdn.oaistatic.com:', response.status);
+                }).catch(error => {
+                    console.error('Failed to send cookie update:', error);
+                });
+            }
+        });
+    }
+});
+
 // Use the stored account data when a tab loads
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' && tab.url && tab.url.includes('chatgpt.com')) {
