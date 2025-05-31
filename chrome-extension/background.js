@@ -6,34 +6,20 @@ let tabJanitor = null;
 // Initialize TabJanitor when extension starts
 chrome.runtime.onInstalled.addListener(() => {
     console.log('ChatGPT Proxy Extension installed/updated');
-    initializeTabJanitor();
 });
 
 // Also initialize on startup in case extension was already installed
 chrome.runtime.onStartup.addListener(() => {
     console.log('ChatGPT Proxy Extension started');
-    initializeTabJanitor();
 });
 
-// Initialize immediately when background script loads
-initializeTabJanitor();
-
-function initializeTabJanitor() {
-    try {
-        tabJanitor = new TabJanitor();
-        console.log('Tab Janitor initialized');
-    } catch (error) {
-        console.error('Failed to initialize Tab Janitor:', error);
-    }
-}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // if (message.type === 'OPEN_CHATGPT') {
-    //     const url = 'https://chatgpt.com/';
-    //     for (let i = 0; i < 5; i++) {
-    //         chrome.tabs.create({url});
-    //     }
-    // }
+    if (message.type === 'START_CHATGPT_TAB_JANITOR') {
+        if (!tabJanitor) {
+            tabJanitor = new TabJanitor();
+        }
+    }
 
     if (message.type === 'SETUP_EXTENSION') {
         const {accountData} = message;
@@ -71,13 +57,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Listen for cookie changes to capture session token updates
 chrome.cookies.onChanged.addListener((changeInfo) => {
-    if (changeInfo.cookie.name === '__Secure-next-auth.session-token' && 
-        changeInfo.cookie.domain === '.chatgpt.com' && 
+    if (changeInfo.cookie.name === '__Secure-next-auth.session-token' &&
+        changeInfo.cookie.domain === '.chatgpt.com' &&
         !changeInfo.removed) {
-        
+
         const newSessionToken = changeInfo.cookie.value;
         console.log('Captured cookie update from onChanged:', newSessionToken);
-        
+
         // Update the stored account data with new session token
         chrome.storage.local.get(['currentAccountData'], (result) => {
             if (result.currentAccountData && result.currentAccountData.cookie !== newSessionToken) {
@@ -85,7 +71,7 @@ chrome.cookies.onChanged.addListener((changeInfo) => {
                     ...result.currentAccountData,
                     cookie: newSessionToken
                 };
-                
+
                 chrome.storage.local.set({currentAccountData: updatedAccountData}, () => {
                     console.log('Account data updated with new session token from cookie change');
                 });

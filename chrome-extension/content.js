@@ -26,7 +26,7 @@ window.addEventListener('message', function (event) {
         });
     }
 
-    if (event.data.type === 'OPEN_CHATGPT') {
+    if (event.data.type === 'START_CHATGPT_TAB_JANITOR') {
         chrome.runtime.sendMessage(event.data);
     }
 }, false);

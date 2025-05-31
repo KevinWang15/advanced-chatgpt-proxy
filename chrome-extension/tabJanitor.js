@@ -40,7 +40,7 @@ class TabJanitor {
 
     /* ──────────────────────────────────────────────────────────────────────── */
     #maybeAdd(tab) {
-        if (tab.url?.includes('gdev.zoco.cc')) {
+        if (tab.url?.includes('chatgpt.com')) {
             if (!this.#chatTabs.has(tab.id))        // first time we see it
                 this.#openedAt.set(tab.id, Date.now());
             this.#chatTabs.add(tab.id);
@@ -126,7 +126,7 @@ class TabJanitor {
         const toOpen = Math.min(need, room);
 
         for (let i = 0; i < toOpen; i++) {
-            const { id } = await chrome.tabs.create({ url: 'https://gdev.zoco.cc/', active: false });
+            const { id } = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false });
             this.#chatTabs.add(id);
             this.#openedAt.set(id, Date.now());
         }
