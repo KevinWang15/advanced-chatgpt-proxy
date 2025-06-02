@@ -55,6 +55,7 @@ class AdsPowerClient {
                 last_opened_tabs: 0,
                 api_key: this.apiKey,
                 profile_id,
+                launch_args: ['--ignore-certificate-errors']
             });
             return response.data;
         } catch (error) {

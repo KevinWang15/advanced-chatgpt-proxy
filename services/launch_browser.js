@@ -156,6 +156,7 @@ function startWithChrome(account) {
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-ipc-flooding-protection",
+            '--ignore-certificate-errors',
         ];
 
         if (os.platform() === "darwin") {
