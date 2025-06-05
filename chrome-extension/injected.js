@@ -175,61 +175,13 @@ async function init() {
                     }
                 );
 
-                if (isHighEffortMode()) {
-                    let deepResearchBtn = document.querySelector('button[aria-label="Deep research"]');
-                    if (deepResearchBtn) {
-
-                        let deepResearchBtnPressed = document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed');
-                        if (deepResearchBtnPressed === 'false') {
-                            deepResearchBtnPressed = false;
-                        }
-                        if (deepResearchBtnPressed === 'true') {
-                            deepResearchBtnPressed = true;
-                        }
-                        if (task.raw_payload.system_hints && task.raw_payload.system_hints[0] === 'research') {
-                            if (!deepResearchBtnPressed) {
-                                deepResearchBtn.click();
-                                await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'true')
-                                await sleep(200);
-                            }
-                        } else {
-                            if (deepResearchBtnPressed) {
-                                deepResearchBtn.click();
-                                await pollUntil(() => document.querySelector('button[aria-label="Deep research"]').getAttribute('aria-pressed') === 'false')
-                                await sleep(200);
-                            }
-                        }
-                    }
-
-                    let searchBtn = document.querySelector('button[aria-label="Search"]');
-                    let searchBtnPressed = document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed');
-                    if (searchBtnPressed === 'false') {
-                        searchBtnPressed = false;
-                    }
-                    if (searchBtnPressed === 'true') {
-                        searchBtnPressed = true;
-                    }
-                    if (task.raw_payload.force_use_search) {
-                        if (!searchBtnPressed) {
-                            searchBtn.click();
-                            await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'true')
-                            await sleep(200);
-                        }
-                    } else {
-                        if (searchBtnPressed) {
-                            searchBtn.click();
-                            await pollUntil(() => document.querySelector('button[aria-label="Search"]').getAttribute('aria-pressed') === 'false')
-                            await sleep(200);
-                        }
-                    }
-                }
-
                 await pollUntil(async () => {
                     let sendButton = await getSendButton();
                     if (sendButton.getAttribute('aria-label') === 'Send prompt') {
                         if (conversationStarted) {
                             return true;
                         }
+                        sendButton.disabled = false;
                         sendButton.click();
                         await sleep(100);
                         return sendButton.getAttribute('aria-label') !== 'Send prompt';
@@ -237,76 +189,7 @@ async function init() {
                 });
             };
 
-            if (!isHighEffortMode()) {
-                await mainRoutine();
-                return true;
-            }
-
-            if (task.action === "variant") {
-                const parentMessage = await findParentMessage(task);
-                const messageToRegenerate = await pollUntil(() =>
-                    parentMessage.closest("article").nextSibling
-                );
-
-                if (!messageToRegenerate.innerText) {
-                    // 这是error情况，应该拒绝掉… 用户发消息→AI回消息→用户发第二条消息但是失败，用户点了retry，会触发
-                }
-
-                messageToRegenerate.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
-                const regenerateButton = await pollUntil(
-                    () => {
-                        const buttons = messageToRegenerate.querySelectorAll('div.items-center button');
-                        return buttons[buttons.length - 1];
-                    }
-                );
-
-                const tryAgainButton = await pollUntil(
-                    async () => {
-                        regenerateButton.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
-                        await sleep(100);
-
-                        const buttons = (Array.from(document.querySelectorAll("div[role='menuitem']")) || []).filter(x => x.innerText.startsWith("Try again"));
-                        if (buttons && buttons.length > 0) {
-                            return buttons[0];
-                        }
-                        return false;
-                    }
-                );
-
-                tryAgainButton.click();
-
-                return true;
-            }
-
-            if (!task.raw_payload.conversation_id) {
-                // new conversation
-                await mainRoutine();
-            } else {
-                const x = async (b) => {
-                    b.querySelector('.group\\/conversation-turn').dispatchEvent(new PointerEvent("pointerover", {bubbles: true}));
-                    const editMessageBtn = await pollUntil(() => b.querySelector("button[aria-label='Edit message']"));
-                    editMessageBtn.click();
-                    const textArea = await pollUntil(() => b.querySelector('textarea'));
-                    textArea.value = '...';
-                    const sendButton = b.querySelector('button.btn-primary');
-                    sendButton.click();
-                };
-                const parentMessage = await findParentMessage(task);
-                if (parentMessage) {
-                    const b = parentMessage.closest("article").nextSibling;
-                    if (b && b.innerText && b.querySelector('div[data-message-id]')) {
-                        await x(b);
-                        return true;
-                    } else {
-                        await mainRoutine();
-                    }
-                } else {
-                    const b = document.querySelector('div[data-message-author-role="user"]').parentElement.parentElement.parentElement.parentElement.parentElement.parentElement;
-                    await x(b);
-                    return true;
-                }
-            }
-
+            await mainRoutine();
             return true;
         }
 
@@ -720,14 +603,6 @@ function getAccountName() {
         return 'Unknown Account';
     }
     return JSON.parse(acc).name;
-}
-
-function isHighEffortMode() {
-    let acc = localStorage.getItem('chatgptAccount');
-    if (!acc) {
-        throw 'Unknown Account';
-    }
-    return JSON.parse(acc).highEffortMode;
 }
 
 function loadScript(url, callback) {

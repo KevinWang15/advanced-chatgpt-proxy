@@ -1,6 +1,7 @@
 # TODO
 
 * advanced voice mode
+* janitor当中有unable to load..的页面也关掉
 * Projects
   * 重命名Project和conversation
   * mapUserTokenToPendingNewConversation的处理
@@ -8,7 +9,6 @@
   : 
   "{\"drafts\":[{\"id\":\"null_thread\",\"content\":\"...\",\"timestamp\":1747470315942}],\"userId\":\"user-HtI45OkQ7SWpcrZpgciC1l1m\"}"
 
-* 插件当中自动管理worker数量，例如重新加载挂掉的标签页等
 * 有些时候生成到一半，会断开网络连接
 * worker的代码有网络方面的泄露，会导致windows平台下长时间运行后不能正常访问网络
 * 如果正在Working，那么不要刷新页面
@@ -23,7 +23,6 @@
 * 各种分页（cursor）功能实现
 * 代码写得太差了找时间重新写
 * canvas当中执行代码
-* Deep Research下载PDF
 * connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选
 * 有时候会一直卡在Working，可能是请求没有正常结束的情况，比如网特别卡
