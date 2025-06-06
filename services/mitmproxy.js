@@ -10,9 +10,7 @@ const path = require('path');
 const {execSync} = require('child_process');
 const forge = require('node-forge');
 
-const {SocksClient} = require('socks');
 const {createHttpsTunnel} = require('../utils/tunnel');
-const {findNFreePorts} = require('../utils/net');
 const config = require(path.join(__dirname, '..', process.env.CONFIG));
 
 const responseCache = new Map();
