@@ -1,7 +1,6 @@
 # TODO
 
 * advanced voice mode
-* janitor当中有unable to load..的页面也关掉
 * Projects
   * 重命名Project和conversation
   * mapUserTokenToPendingNewConversation的处理
@@ -10,7 +9,6 @@
   "{\"drafts\":[{\"id\":\"null_thread\",\"content\":\"...\",\"timestamp\":1747470315942}],\"userId\":\"user-HtI45OkQ7SWpcrZpgciC1l1m\"}"
 
 * 有些时候生成到一半，会断开网络连接
-* worker的代码有网络方面的泄露，会导致windows平台下长时间运行后不能正常访问网络
 * 如果正在Working，那么不要刷新页面
 * 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧 - 或者插件控制warm up
 * canvas - 切换账号之后会不工作

@@ -38,6 +38,8 @@ class TabJanitor {
                     const txt = b.innerText || '';
                     return txt.includes('Content failed to load') ||
                         txt.includes('Not implemented for non-CONNECT') ||
+                        txt.includes('Unable to load projects') ||
+                        txt.includes('Unable to load history') ||
                         b.innerHTML.indexOf('oaistatic') === -1;
                 }
             });

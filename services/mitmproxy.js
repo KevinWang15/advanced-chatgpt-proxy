@@ -1,573 +1,390 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  MITM proxy with one long-lived TLS server per hostname
+// ─────────────────────────────────────────────────────────────────────────────
+
 const http = require('http');
 const net = require('net');
 const tls = require('tls');
 const fs = require('fs');
+const path = require('path');
 const {execSync} = require('child_process');
-const {SocksClient} = require('socks');
 const forge = require('node-forge');
-const {createHttpsTunnel} = require("../utils/tunnel");
-const {findNFreePorts} = require("../utils/net");
-const path = require("path");
-const config = require(path.join(__dirname, "..", process.env.CONFIG));
 
+const {SocksClient} = require('socks');
+const {createHttpsTunnel} = require('../utils/tunnel');
+const {findNFreePorts} = require('../utils/net');
+const config = require(path.join(__dirname, '..', process.env.CONFIG));
 
-// Root CA persisted on disk so user can install/trust it
+const responseCache = new Map();
+const cookieUpdateTimestamps = new Map(); // Track last cookie update time per account
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────────────────────────────────────
 const CA_KEY_PATH = './rootCA.key';
 const CA_CERT_PATH = './rootCA.crt';
 
-// The single domain we intercept
 const INTERCEPT_DOMAIN = 'cdn.oaistatic.com';
+const AAA_DOMAIN = 'aaaaa.chatgpt.com';
 
-/**
- * Attach an error handler to any number of sockets/streams,
- * so "EPIPE" or other errors won't crash the process.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+//  Utilities
+// ─────────────────────────────────────────────────────────────────────────────
 function attachErrorHandlers(...streams) {
-    streams.forEach(stream => {
-        stream.on('error', (err) => {
-            console.warn(`[${(stream.constructor && stream.constructor.name) || 'Socket'} ERROR]`, err.message);
-            // Optionally destroy the stream if needed to close
-            // stream.destroy();
-        });
-    });
+    streams.forEach(s => s.on('error', err =>
+        console.warn(`[${s.constructor?.name || 'Socket'} ERROR]`, err.message)));
 }
 
-/**
- * Creates a root CA key/cert if not found, so the user can install/trust it.
- */
 function ensureRootCA() {
     if (!fs.existsSync(CA_KEY_PATH) || !fs.existsSync(CA_CERT_PATH)) {
-        console.log('No Root CA found. Generating a new one via OpenSSL...');
-
+        console.log('No Root CA found. Generating one with OpenSSL…');
         execSync(`openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
-      -keyout "${CA_KEY_PATH}" -out "${CA_CERT_PATH}" \
-      -subj "/C=US/ST=Test/L=Test/O=MyOrg/CN=MyRootCA"`,
-            {stdio: 'inherit'});
-
-        console.log('\n*** New Root CA created ***');
-        console.log(`    CA Key:  ${CA_KEY_PATH}`);
-        console.log(`    CA Cert: ${CA_CERT_PATH}`);
-        console.log('You MUST install and trust this CA certificate to avoid TLS warnings.\n');
+              -keyout "${CA_KEY_PATH}" -out "${CA_CERT_PATH}" \
+              -subj "/C=US/ST=Test/L=Test/O=MyOrg/CN=MyRootCA"`, {stdio: 'inherit'});
+        console.log('\n*** New Root CA created.  Install & trust it before use. ***\n');
     }
-
-    console.log('Please ensure that you have installed and trusted the Root CA certificate.\n for example, on macOS, run: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain rootCA.crt`');
 }
 
-/**
- * Generates an ephemeral cert/key for the given domain, signed by the root CA.
- * Returns { key: Buffer, cert: Buffer } (in PEM format).
- */
 function generateEphemeralCert(domain) {
-    const rootCAKeyPem = fs.readFileSync(CA_KEY_PATH, 'utf8');
-    const rootCACertPem = fs.readFileSync(CA_CERT_PATH, 'utf8');
+    const rootKeyPem = fs.readFileSync(CA_KEY_PATH, 'utf8');
+    const rootCrtPem = fs.readFileSync(CA_CERT_PATH, 'utf8');
 
-    const rootCAKey = forge.pki.privateKeyFromPem(rootCAKeyPem);
-    const rootCACert = forge.pki.certificateFromPem(rootCACertPem);
+    const rootKey = forge.pki.privateKeyFromPem(rootKeyPem);
+    const rootCrt = forge.pki.certificateFromPem(rootCrtPem);
 
     const {publicKey, privateKey} = forge.pki.rsa.generateKeyPair(2048);
 
     const cert = forge.pki.createCertificate();
     cert.publicKey = publicKey;
     cert.serialNumber = String(Date.now());
-    const now = new Date();
-    cert.validity.notBefore = now;
-    cert.validity.notAfter = new Date(now);
-    cert.validity.notAfter.setFullYear(now.getFullYear() + 2);
+    cert.validity.notBefore = new Date();
+    cert.validity.notAfter = new Date(Date.now() + 2 * 365 * 24 * 3600e3);
 
     cert.setSubject([
         {name: 'commonName', value: domain},
-        {name: 'organizationName', value: 'MyOrg'},
+        {name: 'organizationName', value: 'MyOrg'}
     ]);
-    cert.setIssuer(rootCACert.subject.attributes);
-
-    cert.setExtensions([{
-        name: 'subjectAltName',
-        altNames: [{type: 2, value: domain}],
-    }]);
-
-    cert.sign(rootCAKey, forge.md.sha256.create());
-
-    const serverKeyPem = forge.pki.privateKeyToPem(privateKey);
-    const serverCertPem = forge.pki.certificateToPem(cert);
+    cert.setIssuer(rootCrt.subject.attributes);
+    cert.setExtensions([{name: 'subjectAltName', altNames: [{type: 2, value: domain}]}]);
+    cert.sign(rootKey, forge.md.sha256.create());
 
     return {
-        key: Buffer.from(serverKeyPem, 'utf8'),
-        cert: Buffer.from(serverCertPem, 'utf8'),
+        key: Buffer.from(forge.pki.privateKeyToPem(privateKey), 'utf8'),
+        cert: Buffer.from(forge.pki.certificateToPem(cert), 'utf8')
     };
 }
 
-/**
- * Reads a single HTTP request from `socket` until "\r\n\r\n".
- * Returns the request as a string (headers only).
- */
+// read HTTP request headers (until \r\n\r\n)
 function readHttpRequest(socket) {
     return new Promise((resolve, reject) => {
-        let data = '';
-
-        function onData(chunk) {
-            data += chunk.toString('utf8');
-            const idx = data.indexOf('\r\n\r\n');
-            if (idx !== -1) {
+        let buf = '';
+        const onData = chunk => {
+            buf += chunk.toString('utf8');
+            if (buf.includes('\r\n\r\n')) {
                 socket.removeListener('data', onData);
-                // all request headers up to \r\n\r\n
-                resolve(data.slice(0, idx + 4));
-            }
-        }
-
-        socket.on('data', onData);
-        socket.on('error', reject);
-        socket.on('end', () => reject(new Error('Socket ended before request was fully read')));
-    });
-}
-
-// ------------------ MAIN -------------------
-
-ensureRootCA();
-const {key: ephemeralKey, cert: ephemeralCert} = generateEphemeralCert(INTERCEPT_DOMAIN);
-const {key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert} = generateEphemeralCert("aaaaa.chatgpt.com");
-
-function runMitm(account) {
-    return new Promise((resolve) => {
-        const server = http.createServer((req, res) => {
-            if (req.url === "/setup-extension") {
-                res.writeHead(200, {"Content-Type": "text/html"});
-                res.end(genExtensionConfigurationHtml(account));
-            } else {
-                res.writeHead(501);
-                res.end('Not implemented for non-CONNECT.\n');
-            }
-        });
-
-        server.on('connect', async (req, clientSocket, head) => {
-            attachErrorHandlers(clientSocket);
-            if (req.url === `aaaaa.chatgpt.com:443`) {
-                handleAaaaaMitm(clientSocket, head);
-            } else if (req.url === `${INTERCEPT_DOMAIN}:443`) {
-                handleCdnOaiStaticComMitm(account, clientSocket, head);
-            } else {
-                try{
-                    await handleDirectTcpTunnel(req, account, clientSocket, head);
-                }catch (ex){
-                    console.error(ex);
-                }
-            }
-        });
-
-        // Also attach error handler to the main server
-        server.on('error', (err) => {
-            console.error('Server error:', err);
-        });
-
-        server.listen(0, () => {
-            const port = server.address().port;
-            console.log(`\n* Proxy for ${account.name} listening on port ${port}.`);
-            resolve({port, closeServer: () => server.close()});
-        });
-    });
-}
-
-function buildHttpResponseHeaders(realResp, bodyBuffer) {
-    const statusLine = `HTTP/1.1 ${realResp.status} ${realResp.statusText || 'OK'}`;
-    const rawHeaders = [];
-
-    // We'll gather original headers except for hop-by-hop and length/encoding
-    const hopByHop = new Set([
-        'content-length',
-        'transfer-encoding',
-        'connection',
-        'keep-alive',
-        'proxy-authenticate',
-        'proxy-authorization',
-        'te',
-        'trailer',
-        'upgrade',
-        'content-encoding',
-    ]);
-
-    for (const [key, value] of realResp.headers.entries()) {
-        if (!hopByHop.has(key.toLowerCase())) {
-            rawHeaders.push(`${key}: ${value}`);
-        }
-    }
-
-    // End of headers
-    return statusLine + '\r\n' + rawHeaders.join('\r\n') + '\r\n\r\n';
-}
-
-const responseCache = new Map();
-const cookieUpdateTimestamps = new Map(); // Track last cookie update time per account
-
-function handleAaaaaMitm(clientSocket, head) {
-    const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
-        attachErrorHandlers(tlsClientSocket);
-        
-        // Cleanup handler to close server when client disconnects
-        const cleanup = () => {
-            try {
-                tlsServer.close();
-            } catch (err) {
-                console.warn('Error closing TLS server:', err.message);
+                resolve(buf.slice(0, buf.indexOf('\r\n\r\n') + 4));
             }
         };
-        
-        tlsClientSocket.on('close', cleanup);
-        tlsClientSocket.on('error', cleanup);
-        
-        let targetSocket;
-
-        if (config.worker.centralServer.startsWith('wss://')) {
-            /* ---------- secure (WSS) upstream hop ---------------------------------- */
-            const url = new URL(config.worker.centralServer);
-
-            const tlsOptions = {
-                host: url.hostname,
-                port: url.port ? +url.port : 443,
-                servername: url.hostname,
-                rejectUnauthorized: true,
-            };
-
-            targetSocket = tls.connect(tlsOptions, () => {
-                console.log(
-                    `🔒 TLS established to ${tlsOptions.host}:${tlsOptions.port} – ` +
-                    `authorized=${targetSocket.authorized}`
-                );
-
-                attachErrorHandlers(targetSocket);
-
-                // Wire the client <--> upstream tunnel once TLS is up
-                tlsClientSocket.pipe(targetSocket);
-                targetSocket.pipe(tlsClientSocket);
-            });
-
-        } else {
-            const [centralServerHost, centralServerPort] = config.worker.centralServer.split(":");
-            // Create connection to target WebSocket server
-            targetSocket = net.connect(+centralServerPort, centralServerHost, () => {
-                console.log(`Connected to WebSocket server at ${centralServerHost}:${+centralServerPort}`);
-
-                // Set up error handling for the target socket
-                attachErrorHandlers(targetSocket);
-
-                // Immediately pipe data in both directions
-                tlsClientSocket.pipe(targetSocket);
-                targetSocket.pipe(tlsClientSocket);
-            });
-        }
-
-        /* ---------- common error handling ---------------------------------------- */
-        targetSocket.on('error', (err) => {
-            console.error('Error connecting to WebSocket server:', err);
-            tlsClientSocket.destroy();
-            cleanup();
-        });
-        
-        targetSocket.on('close', cleanup);
-    });
-
-    // Properly handle errors on the TLS server itself
-    attachErrorHandlers(tlsServer);
-
-    tlsServer.listen(0, () => {
-        const mitmPort = tlsServer.address().port;
-
-        // Respond 200 to CONNECT
-        clientSocket.write(
-            'HTTP/1.1 200 Connection Established\r\n' +
-            '\r\n'
-        );
-
-        // Connect client -> local TLS server
-        const mitmConn = net.connect(mitmPort, '127.0.0.1', () => {
-            attachErrorHandlers(mitmConn);
-            if (head && head.length) {
-                mitmConn.write(head);
-            }
-
-            // Pipe data both ways
-            clientSocket.pipe(mitmConn);
-            mitmConn.pipe(clientSocket);
-        });
-
-        attachErrorHandlers(mitmConn);
-        
-        // Cleanup when client disconnects
-        clientSocket.on('close', () => {
-            try {
-                mitmConn.destroy();
-            } catch (err) {
-                console.warn('Error destroying mitmConn:', err.message);
-            }
-        });
-        
-        clientSocket.on('error', () => {
-            try {
-                mitmConn.destroy();
-            } catch (err) {
-                console.warn('Error destroying mitmConn on client error:', err.message);
-            }
-        });
+        socket.on('data', onData).on('error', reject)
+            .on('end', () => reject(new Error('Socket ended before headers complete')));
     });
 }
 
-function handleCdnOaiStaticComMitm(account, clientSocket, head) {
-    const tlsServer = new tls.Server({key: ephemeralKey, cert: ephemeralCert}, async (tlsClientSocket) => {
-        attachErrorHandlers(tlsClientSocket);
-        
-        // Cleanup handler to close server when client disconnects
-        const cleanup = () => {
-            try {
-                tlsServer.close();
-            } catch (err) {
-                console.warn('Error closing TLS server:', err.message);
-            }
-        };
-        
-        tlsClientSocket.on('close', cleanup);
-        tlsClientSocket.on('error', cleanup);
-
-        try {
-            // 1) Read a single HTTP request from client
-            const requestRaw = await readHttpRequest(tlsClientSocket);
-            const [requestLine] = requestRaw.split('\r\n');
-            const [method, path] = requestLine.split(' ').slice(0, 2) || [];
-
-            if (method === 'PUT' && path === '/cookies') {
-                // Extract Content-Length from headers
-                const contentLengthMatch = requestRaw.match(/Content-Length:\s*(\d+)/i);
-                const contentLength = contentLengthMatch ? parseInt(contentLengthMatch[1], 10) : 0;
-                
-                if (contentLength > 0) {
-                    // Read the request body
-                    let bodyData = '';
-                    let bytesRead = 0;
-                    
-                    const readBody = () => {
-                        return new Promise((resolve) => {
-                            const onData = (chunk) => {
-                                bodyData += chunk.toString();
-                                bytesRead += chunk.length;
-                                
-                                if (bytesRead >= contentLength) {
-                                    tlsClientSocket.removeListener('data', onData);
-                                    resolve();
-                                }
-                            };
-                            
-                            tlsClientSocket.on('data', onData);
-                        });
-                    };
-                    
-                    await readBody();
-                    
-                    try {
-                        const cookieUpdate = JSON.parse(bodyData);
-                        console.log('Cookie update received via MITM proxy:', cookieUpdate);
-                        
-                        // Check if we've updated this account's cookie recently (within 1 hour)
-                        const lastUpdateTime = cookieUpdateTimestamps.get(account.name);
-                        const now = Date.now();
-                        const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
-                        
-                        if (lastUpdateTime && (now - lastUpdateTime) < oneHour) {
-                            console.log(`Skipping cookie update for account ${account.name} - updated ${Math.round((now - lastUpdateTime) / (60 * 1000))} minutes ago`);
-                            return;
-                        }
-                        
-                        // Update the account cookie in config
-                        const { getAccountByName, updateAccount } = require('../admin/middleware/configManager');
-                        const currentAccount = getAccountByName(account.name);
-                        
-                        if (currentAccount) {
-                            const updatedAccount = {
-                                ...currentAccount,
-                                cookie: cookieUpdate.sessionToken
-                            };
-                            
-                            const result = updateAccount(account.name, updatedAccount);
-                            if (result.success) {
-                                cookieUpdateTimestamps.set(account.name, now); // Remember the update time
-                                console.log(`Updated cookie for account ${account.name} in config`);
-                            } else {
-                                console.error(`Failed to update cookie for account ${account.name}:`, result.message);
-                            }
-                        } else {
-                            console.error(`Account ${account.name} not found in config`);
-                        }
-                    } catch (error) {
-                        console.error('Error parsing cookie update:', error, 'Body:', bodyData);
-                    }
-                }
-                
-                // Send a simple 200 OK response
-                const response = 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n';
-                tlsClientSocket.write(response);
-                tlsClientSocket.end();
-                return;
-            }
-            // Create cache key from the request method and path
-            const cacheKey = `${method}:${path}`;
-
-            // Check if response is in cache
-            let responseHeaders;
-            let body;
-
-            if (fs.existsSync("./static/" + path)) {
-                body = fs.readFileSync("./static/" + path);
-                responseHeaders = `HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: ${body.length}\r\n\r\n`;
-            } else if (responseCache.has(cacheKey)) {
-                const cachedResponse = responseCache.get(cacheKey);
-                responseHeaders = cachedResponse.headers;
-                body = cachedResponse.body;
-            } else {
-                const {socket} = await createHttpsTunnel(account.proxy, INTERCEPT_DOMAIN, 443);
-
-                // Create TLS connection over the SOCKS connection
-                const tlsConnection = tls.connect({
-                    socket: socket,
-                    servername: INTERCEPT_DOMAIN,
-                });
-
-                // Wait for TLS handshake to complete
-                await new Promise((resolve, reject) => {
-                    tlsConnection.on('secureConnect', resolve);
-                    tlsConnection.on('error', reject);
-                });
-
-                // Send HTTP request over TLS connection
-                const httpRequest = `${method} ${path} HTTP/1.1\r\n` +
-                    `Host: ${INTERCEPT_DOMAIN}\r\n` +
-                    `Connection: close\r\n` +
-                    `\r\n`;
-
-                tlsConnection.write(httpRequest);
-
-                // Read HTTP response
-                const responseData = await new Promise((resolve, reject) => {
-                    let data = Buffer.alloc(0);
-
-                    tlsConnection.on('data', (chunk) => {
-                        data = Buffer.concat([data, chunk]);
-                    });
-
-                    tlsConnection.on('end', () => {
-                        resolve(data);
-                    });
-
-                    tlsConnection.on('error', reject);
-                });
-
-                // Parse HTTP response
-                const responseText = responseData.toString('utf8');
-                const headerEndIndex = responseText.indexOf('\r\n\r\n');
-                const headersPart = responseText.substring(0, headerEndIndex);
-                const bodyPart = responseText.substring(headerEndIndex + 4);
-
-                // Parse status line and headers
-                const lines = headersPart.split('\r\n');
-                const statusLine = lines[0];
-                const statusMatch = statusLine.match(/HTTP\/\d\.\d (\d+) (.*)/);
-                const status = statusMatch ? parseInt(statusMatch[1], 10) : 200;
-                const statusText = statusMatch ? statusMatch[2] : 'OK';
-
-                // Create headers map
-                const headers = new Map();
-                for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i];
-                    const colonIndex = line.indexOf(':');
-                    if (colonIndex > 0) {
-                        const key = line.substring(0, colonIndex).trim();
-                        const value = line.substring(colonIndex + 1).trim();
-                        headers.set(key, value);
-                    }
-                }
-
-                // Create a mock response object
-                const realResp = {
-                    status,
-                    statusText,
-                    headers
-                };
-
-                // 3) Apply transformations
-                body = doReplacements(bodyPart, account);
-
-                // 4) Build HTTP response headers
-                responseHeaders = buildHttpResponseHeaders(realResp, body);
-
-                if (status === 200) {
-                    responseCache.set(cacheKey, {
-                        headers: responseHeaders,
-                        body
-                    });
-                }
-
-                // Clean up
-                try {
-                    tlsConnection.end();
-                } catch (err) {
-                    console.warn('Error closing TLS connection:', err.message);
-                }
-            }
-
-            // 5) Send response to client
-            tlsClientSocket.write(responseHeaders);
-            tlsClientSocket.write(body);
-
-            // We assume a single request; end afterwards
-            tlsClientSocket.end();
-        } catch (err) {
-            console.error('Error in MITM handling:', err);
-            tlsClientSocket.destroy();
-        }
-    });
-
-    // Properly handle errors on the TLS server itself
-    attachErrorHandlers(tlsServer);
-
-    tlsServer.listen(0, () => {
-        const mitmPort = tlsServer.address().port;
-
-        // Respond 200 to CONNECT
-        clientSocket.write(
-            'HTTP/1.1 200 Connection Established\r\n' +
-            '\r\n'
-        );
-
-        // Connect client -> local TLS server
-        const mitmConn = net.connect(mitmPort, '127.0.0.1', () => {
-            attachErrorHandlers(mitmConn);
-            if (head && head.length) {
-                mitmConn.write(head);
-            }
-            // Pipe data both ways
-            clientSocket.pipe(mitmConn);
-            mitmConn.pipe(clientSocket);
-        });
-
-        attachErrorHandlers(mitmConn);
-        
-        // Cleanup when client disconnects
-        clientSocket.on('close', () => {
-            try {
-                mitmConn.destroy();
-            } catch (err) {
-                console.warn('Error destroying mitmConn:', err.message);
-            }
-        });
-        
-        clientSocket.on('error', () => {
-            try {
-                mitmConn.destroy();
-            } catch (err) {
-                console.warn('Error destroying mitmConn on client error:', err.message);
-            }
-        });
-    });
-}
+// ─────────────────────────────────────────────────────────────────────────────
+//  TLS-server pool  (Option A core)
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Map hostname → { server, port, liveSockets:Set }
+ * Ensures exactly one tls.Server per host for the whole process.
+ */
+const tlsMitmPool = new Map();
 
 /**
- * For other domains: raw tunnel via SOCKS5
+ * Get or create the long-lived TLS MITM server for `host`.
+ * @param {string} host
+ * @param {Buffer} key
+ * @param {Buffer} cert
+ * @param {function} onSecure  listener for 'secureConnection'
+ * @returns {Promise<{server:tls.Server, port:number, live:Set<net.Socket>}>}
  */
+function getOrCreateTlsServer(host, key, cert, onSecure) {
+    if (tlsMitmPool.has(host)) return tlsMitmPool.get(host);     // already ready
+
+    return new Promise((resolve, reject) => {
+        const server = new tls.Server({key, cert}, onSecure);
+        const live = new Set();
+        server.on('connection', s => {
+            live.add(s);
+            s.on('close', () => live.delete(s));
+        });
+        attachErrorHandlers(server);
+
+        server.listen(0, () => {
+            const entry = {server, port: server.address().port, live};
+            tlsMitmPool.set(host, entry);
+            resolve(entry);
+        }).on('error', reject);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Certificates
+// ─────────────────────────────────────────────────────────────────────────────
+ensureRootCA();
+const {key: interceptKey, cert: interceptCert} = generateEphemeralCert(INTERCEPT_DOMAIN);
+const {key: aaaaaKey, cert: aaaaaCert} = generateEphemeralCert(AAA_DOMAIN);
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MITM handlers
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleAaaaaMitm(clientSocket, head) {
+    // 1. get or spin-up long-lived TLS MITM
+    const {port} = await getOrCreateTlsServer(
+        AAA_DOMAIN, aaaaaKey, aaaaaCert,
+        async tlsClientSocket => {
+            attachErrorHandlers(tlsClientSocket);
+
+            /* ---------- upstream WS connection (same as before) ---------- */
+            let targetSocket;
+            if (config.worker.centralServer.startsWith('wss://')) {
+                const url = new URL(config.worker.centralServer);
+                targetSocket = tls.connect({
+                        host: url.hostname, port: url.port ? +url.port : 443,
+                        servername: url.hostname, rejectUnauthorized: true
+                    }, () =>
+                        console.log(`🔒 TLS to ${url.hostname}:${url.port || 443} authorised=${targetSocket.authorized}`)
+                );
+            } else {
+                const [host, p] = config.worker.centralServer.split(':');
+                targetSocket = net.connect(+p, host, () =>
+                    console.log(`Connected plain WS to ${host}:${p}`));
+            }
+
+            attachErrorHandlers(targetSocket);
+            tlsClientSocket.pipe(targetSocket).pipe(tlsClientSocket);
+            /* ------------------------------------------------------------- */
+        });
+
+    // 2. acknowledge CONNECT
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+
+    // 3. link sockets through loopback
+    const mitmConn = net.connect(port, '127.0.0.1', () => {
+        if (head?.length) mitmConn.write(head);
+        clientSocket.pipe(mitmConn).pipe(clientSocket);
+    });
+    attachErrorHandlers(mitmConn);
+}
+
+
+async function handleCdnOaiStaticComMitm(account, clientSocket, head) {
+    const {port} = await getOrCreateTlsServer(
+        INTERCEPT_DOMAIN, interceptKey, interceptCert,
+        async tlsClientSocket => {
+            attachErrorHandlers(tlsClientSocket);
+            try {
+                // 1) Read a single HTTP request from client
+                const requestRaw = await readHttpRequest(tlsClientSocket);
+                const [requestLine] = requestRaw.split('\r\n');
+                const [method, path] = requestLine.split(' ').slice(0, 2) || [];
+
+                if (method === 'PUT' && path === '/cookies') {
+                    // Extract Content-Length from headers
+                    const contentLengthMatch = requestRaw.match(/Content-Length:\s*(\d+)/i);
+                    const contentLength = contentLengthMatch ? parseInt(contentLengthMatch[1], 10) : 0;
+
+                    if (contentLength > 0) {
+                        // Read the request body
+                        let bodyData = '';
+                        let bytesRead = 0;
+
+                        const readBody = () => {
+                            return new Promise((resolve) => {
+                                const onData = (chunk) => {
+                                    bodyData += chunk.toString();
+                                    bytesRead += chunk.length;
+
+                                    if (bytesRead >= contentLength) {
+                                        tlsClientSocket.removeListener('data', onData);
+                                        resolve();
+                                    }
+                                };
+
+                                tlsClientSocket.on('data', onData);
+                            });
+                        };
+
+                        await readBody();
+
+                        try {
+                            const cookieUpdate = JSON.parse(bodyData);
+                            console.log('Cookie update received via MITM proxy:', cookieUpdate);
+
+                            // Check if we've updated this account's cookie recently (within 1 hour)
+                            const lastUpdateTime = cookieUpdateTimestamps.get(account.name);
+                            const now = Date.now();
+                            const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+
+                            if (lastUpdateTime && (now - lastUpdateTime) < oneHour) {
+                                console.log(`Skipping cookie update for account ${account.name} - updated ${Math.round((now - lastUpdateTime) / (60 * 1000))} minutes ago`);
+                                return;
+                            }
+
+                            // Update the account cookie in config
+                            const {getAccountByName, updateAccount} = require('../admin/middleware/configManager');
+                            const currentAccount = getAccountByName(account.name);
+
+                            if (currentAccount) {
+                                const updatedAccount = {
+                                    ...currentAccount,
+                                    cookie: cookieUpdate.sessionToken
+                                };
+
+                                const result = updateAccount(account.name, updatedAccount);
+                                if (result.success) {
+                                    cookieUpdateTimestamps.set(account.name, now); // Remember the update time
+                                    console.log(`Updated cookie for account ${account.name} in config`);
+                                } else {
+                                    console.error(`Failed to update cookie for account ${account.name}:`, result.message);
+                                }
+                            } else {
+                                console.error(`Account ${account.name} not found in config`);
+                            }
+                        } catch (error) {
+                            console.error('Error parsing cookie update:', error, 'Body:', bodyData);
+                        }
+                    }
+
+                    // Send a simple 200 OK response
+                    const response = 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n';
+                    tlsClientSocket.write(response);
+                    tlsClientSocket.end();
+                    return;
+                }
+                // Create cache key from the request method and path
+                const cacheKey = `${method}:${path}`;
+
+                // Check if response is in cache
+                let responseHeaders;
+                let body;
+
+                if (fs.existsSync("./static/" + path)) {
+                    body = fs.readFileSync("./static/" + path);
+                    responseHeaders = `HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: ${body.length}\r\n\r\n`;
+                } else if (responseCache.has(cacheKey)) {
+                    const cachedResponse = responseCache.get(cacheKey);
+                    responseHeaders = cachedResponse.headers;
+                    body = cachedResponse.body;
+                } else {
+                    const {socket} = await createHttpsTunnel(account.proxy, INTERCEPT_DOMAIN, 443);
+
+                    // Create TLS connection over the SOCKS connection
+                    const tlsConnection = tls.connect({
+                        socket: socket,
+                        servername: INTERCEPT_DOMAIN,
+                    });
+
+                    // Wait for TLS handshake to complete
+                    await new Promise((resolve, reject) => {
+                        tlsConnection.on('secureConnect', resolve);
+                        tlsConnection.on('error', reject);
+                    });
+
+                    // Send HTTP request over TLS connection
+                    const httpRequest = `${method} ${path} HTTP/1.1\r\n` +
+                        `Host: ${INTERCEPT_DOMAIN}\r\n` +
+                        `Connection: close\r\n` +
+                        `\r\n`;
+
+                    tlsConnection.write(httpRequest);
+
+                    // Read HTTP response
+                    const responseData = await new Promise((resolve, reject) => {
+                        let data = Buffer.alloc(0);
+
+                        tlsConnection.on('data', (chunk) => {
+                            data = Buffer.concat([data, chunk]);
+                        });
+
+                        tlsConnection.on('end', () => {
+                            resolve(data);
+                        });
+
+                        tlsConnection.on('error', reject);
+                    });
+
+                    // Parse HTTP response
+                    const responseText = responseData.toString('utf8');
+                    const headerEndIndex = responseText.indexOf('\r\n\r\n');
+                    const headersPart = responseText.substring(0, headerEndIndex);
+                    const bodyPart = responseText.substring(headerEndIndex + 4);
+
+                    // Parse status line and headers
+                    const lines = headersPart.split('\r\n');
+                    const statusLine = lines[0];
+                    const statusMatch = statusLine.match(/HTTP\/\d\.\d (\d+) (.*)/);
+                    const status = statusMatch ? parseInt(statusMatch[1], 10) : 200;
+                    const statusText = statusMatch ? statusMatch[2] : 'OK';
+
+                    // Create headers map
+                    const headers = new Map();
+                    for (let i = 1; i < lines.length; i++) {
+                        const line = lines[i];
+                        const colonIndex = line.indexOf(':');
+                        if (colonIndex > 0) {
+                            const key = line.substring(0, colonIndex).trim();
+                            const value = line.substring(colonIndex + 1).trim();
+                            headers.set(key, value);
+                        }
+                    }
+
+                    // Create a mock response object
+                    const realResp = {
+                        status,
+                        statusText,
+                        headers
+                    };
+
+                    // 3) Apply transformations
+                    body = doReplacements(bodyPart, account);
+
+                    // 4) Build HTTP response headers
+                    responseHeaders = buildHttpResponseHeaders(realResp, body);
+
+                    if (status === 200) {
+                        responseCache.set(cacheKey, {
+                            headers: responseHeaders,
+                            body
+                        });
+                    }
+
+                    // Clean up
+                    tlsConnection.end();
+                }
+
+                // 5) Send response to client
+                tlsClientSocket.write(responseHeaders);
+                tlsClientSocket.write(body);
+
+                // We assume a single request; end afterwards
+                tlsClientSocket.end();
+            } catch (err) {
+                console.error('Error in MITM handling:', err);
+                tlsClientSocket.destroy();
+            }
+        });
+
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    const mitmConn = net.connect(port, '127.0.0.1', () => {
+        if (head?.length) mitmConn.write(head);
+        clientSocket.pipe(mitmConn).pipe(clientSocket);
+    });
+    attachErrorHandlers(mitmConn);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fallback tunnel for other hosts
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleDirectTcpTunnel(req, account, clientSocket, head) {
     // -------- 1. Parse target host:port --------
     // req.url can be like "example.com:443" or "//example.com:443"
@@ -583,13 +400,19 @@ async function handleDirectTcpTunnel(req, account, clientSocket, head) {
         if (closed) return;
         closed = true;
         if (err) console.error('Tunnel closed:', err);
-        try { clientSocket.destroy(); } catch (_) {}
-        try { proxySocket?.destroy(); } catch (_) {}
+        try {
+            clientSocket.destroy();
+        } catch (_) {
+        }
+        try {
+            proxySocket?.destroy();
+        } catch (_) {
+        }
     };
 
     try {
         // -------- 2. Create HTTPS CONNECT tunnel via proxy --------
-        ({ socket: proxySocket } = await createHttpsTunnel(account.proxy, host, port));
+        ({socket: proxySocket} = await createHttpsTunnel(account.proxy, host, port));
 
         // -------- 3. Tell the client the tunnel is ready --------
         clientSocket.write(
@@ -619,6 +442,42 @@ async function handleDirectTcpTunnel(req, account, clientSocket, head) {
         clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
         destroyBoth(err);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HTTP proxy per account
+// ─────────────────────────────────────────────────────────────────────────────
+function runMitm(account) {
+    return new Promise(resolve => {
+        const server = http.createServer((req, res) => {
+            if (req.url === '/setup-extension') {
+                res.writeHead(200, {'Content-Type': 'text/html'});
+                res.end(genExtensionConfigurationHtml(account));
+            } else {
+                res.writeHead(501);
+                res.end('Not implemented for non-CONNECT.\n');
+            }
+        });
+
+        server.on('connect', async (req, clientSocket, head) => {
+            attachErrorHandlers(clientSocket);
+            try {
+                if (req.url === `${AAA_DOMAIN}:443`) await handleAaaaaMitm(clientSocket, head);
+                else if (req.url === `${INTERCEPT_DOMAIN}:443`) await handleCdnOaiStaticComMitm(account, clientSocket, head);
+                else await handleDirectTcpTunnel(req, account, clientSocket, head);
+            } catch (ex) {
+                console.error(ex);
+                clientSocket.destroy();
+            }
+        });
+
+        attachErrorHandlers(server);
+        server.listen(0, () => {
+            const port = server.address().port;
+            console.log(`\n* Proxy for ${account.name} listening on ${port}`);
+            resolve({port, closeServer: () => server.close()});
+        });
+    });
 }
 
 function doReplacements(body, account) {
@@ -675,9 +534,9 @@ function doReplacements(body, account) {
 }
 
 
-//
-// Generates the HTML used to configure the extension on startup
-//
+// ─────────────────────────────────────────────────────────────────────────────
+//  Helper: HTML for extension setup
+// ─────────────────────────────────────────────────────────────────────────────
 function genExtensionConfigurationHtml(account) {
     return `
 <!DOCTYPE html>
@@ -828,4 +687,45 @@ function genExtensionConfigurationHtml(account) {
 </html>`;
 }
 
-module.exports = {runMitm}
+function buildHttpResponseHeaders(realResp, bodyBuffer) {
+    const statusLine = `HTTP/1.1 ${realResp.status} ${realResp.statusText || 'OK'}`;
+    const rawHeaders = [];
+
+    // We'll gather original headers except for hop-by-hop and length/encoding
+    const hopByHop = new Set([
+        'content-length',
+        'transfer-encoding',
+        'connection',
+        'keep-alive',
+        'proxy-authenticate',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'upgrade',
+        'content-encoding',
+    ]);
+
+    for (const [key, value] of realResp.headers.entries()) {
+        if (!hopByHop.has(key.toLowerCase())) {
+            rawHeaders.push(`${key}: ${value}`);
+        }
+    }
+
+    // End of headers
+    return statusLine + '\r\n' + rawHeaders.join('\r\n') + '\r\n\r\n';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Graceful shutdown: close pooled TLS servers too
+// ─────────────────────────────────────────────────────────────────────────────
+process.on('SIGINT', async () => {
+    console.log('\nShutting down…');
+    for (const {server, live} of tlsMitmPool.values()) {
+        for (const s of live) s.destroy();
+        await new Promise(res => server.close(res));
+    }
+    process.exit(0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+module.exports = {runMitm};
