@@ -28,7 +28,6 @@ class TabJanitor {
         chrome.tabs.onCreated.addListener(t => this.#maybeAdd(t));
         chrome.tabs.onUpdated.addListener((id, info, tab) => {
             if (info.url) this.#maybeAdd(tab);
-            if (info.status === 'complete') this.#quickCheck(tab);
         });
         chrome.tabs.onRemoved.addListener(id => {
             this.#chatTabs.delete(id);
@@ -51,16 +50,6 @@ class TabJanitor {
             this.#openedAt.delete(tab.id);
             this.#errorSince.delete(tab.id);
         }
-    }
-
-    async #quickCheck(tab) {
-        // Fast feedback when a page finishes loading
-        const age = Date.now() - (this.#openedAt.get(tab.id) ?? 0);
-        if (age < TabJanitor.GRACE_MS) return; // still in grace period
-        if (await this.#isError(tab.id))
-            this.#errorSince.set(tab.id, Date.now());
-        else
-            this.#errorSince.delete(tab.id);
     }
 
     /* ──────────────────────────────────────────────────────────────────── */

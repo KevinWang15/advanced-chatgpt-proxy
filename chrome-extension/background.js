@@ -3,17 +3,6 @@ import TabJanitor from './tabJanitor.js';
 
 let tabJanitor = null;
 
-// Initialize TabJanitor when extension starts
-chrome.runtime.onInstalled.addListener(() => {
-    console.log('ChatGPT Proxy Extension installed/updated');
-});
-
-// Also initialize on startup in case extension was already installed
-chrome.runtime.onStartup.addListener(() => {
-    console.log('ChatGPT Proxy Extension started');
-});
-
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'START_CHATGPT_TAB_JANITOR') {
         if (!tabJanitor) {
@@ -26,7 +15,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // Save account data to Chrome storage
         chrome.storage.local.set({currentAccountData: accountData}, () => {
-            console.log('Account data saved');
 
             if (accountData.cookie) {
                 (async function setCookies() {
@@ -62,7 +50,6 @@ chrome.cookies.onChanged.addListener((changeInfo) => {
         !changeInfo.removed) {
 
         const newSessionToken = changeInfo.cookie.value;
-        console.log('Captured cookie update from onChanged:', newSessionToken);
 
         // Update the stored account data with new session token
         chrome.storage.local.get(['currentAccountData'], (result) => {
@@ -105,7 +92,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
                 chrome.scripting.executeScript({
                     target: {tabId},
                     func: (accountData) => {
-                        // You might want to stringify it if it's an object
                         localStorage.setItem('chatgptAccount', JSON.stringify(accountData));
                     },
                     args: [result.currentAccountData]
