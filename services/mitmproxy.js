@@ -200,7 +200,19 @@ const cookieUpdateTimestamps = new Map(); // Track last cookie update time per a
 function handleAaaaaMitm(clientSocket, head) {
     const tlsServer = new tls.Server({key: aaaaaEphemeralKey, cert: aaaaaEphemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
-        tlsClientSocket.on('close', () => tlsServer.close());
+        
+        // Cleanup handler to close server when client disconnects
+        const cleanup = () => {
+            try {
+                tlsServer.close();
+            } catch (err) {
+                console.warn('Error closing TLS server:', err.message);
+            }
+        };
+        
+        tlsClientSocket.on('close', cleanup);
+        tlsClientSocket.on('error', cleanup);
+        
         let targetSocket;
 
         if (config.worker.centralServer.startsWith('wss://')) {
@@ -246,7 +258,10 @@ function handleAaaaaMitm(clientSocket, head) {
         targetSocket.on('error', (err) => {
             console.error('Error connecting to WebSocket server:', err);
             tlsClientSocket.destroy();
+            cleanup();
         });
+        
+        targetSocket.on('close', cleanup);
     });
 
     // Properly handle errors on the TLS server itself
@@ -274,12 +289,41 @@ function handleAaaaaMitm(clientSocket, head) {
         });
 
         attachErrorHandlers(mitmConn);
+        
+        // Cleanup when client disconnects
+        clientSocket.on('close', () => {
+            try {
+                mitmConn.destroy();
+            } catch (err) {
+                console.warn('Error destroying mitmConn:', err.message);
+            }
+        });
+        
+        clientSocket.on('error', () => {
+            try {
+                mitmConn.destroy();
+            } catch (err) {
+                console.warn('Error destroying mitmConn on client error:', err.message);
+            }
+        });
     });
 }
 
 function handleCdnOaiStaticComMitm(account, clientSocket, head) {
     const tlsServer = new tls.Server({key: ephemeralKey, cert: ephemeralCert}, async (tlsClientSocket) => {
         attachErrorHandlers(tlsClientSocket);
+        
+        // Cleanup handler to close server when client disconnects
+        const cleanup = () => {
+            try {
+                tlsServer.close();
+            } catch (err) {
+                console.warn('Error closing TLS server:', err.message);
+            }
+        };
+        
+        tlsClientSocket.on('close', cleanup);
+        tlsClientSocket.on('error', cleanup);
 
         try {
             // 1) Read a single HTTP request from client
@@ -458,7 +502,11 @@ function handleCdnOaiStaticComMitm(account, clientSocket, head) {
                 }
 
                 // Clean up
-                tlsConnection.end();
+                try {
+                    tlsConnection.end();
+                } catch (err) {
+                    console.warn('Error closing TLS connection:', err.message);
+                }
             }
 
             // 5) Send response to client
@@ -492,10 +540,28 @@ function handleCdnOaiStaticComMitm(account, clientSocket, head) {
                 mitmConn.write(head);
             }
             // Pipe data both ways
-            clientSocket.pipe(mitmConn).pipe(clientSocket);
+            clientSocket.pipe(mitmConn);
+            mitmConn.pipe(clientSocket);
         });
 
         attachErrorHandlers(mitmConn);
+        
+        // Cleanup when client disconnects
+        clientSocket.on('close', () => {
+            try {
+                mitmConn.destroy();
+            } catch (err) {
+                console.warn('Error destroying mitmConn:', err.message);
+            }
+        });
+        
+        clientSocket.on('error', () => {
+            try {
+                mitmConn.destroy();
+            } catch (err) {
+                console.warn('Error destroying mitmConn on client error:', err.message);
+            }
+        });
     });
 }
 
