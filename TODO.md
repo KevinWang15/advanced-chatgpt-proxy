@@ -15,6 +15,7 @@
 * 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧 - 或者插件控制warm up
 * canvas - 切换账号之后会不工作
 * “…”按钮 当中 添加导出当前会话等功能
+* 更好的携带聊天记录转号的功能，直接使用GPT官方的share链接（现在share的会话已经可以“继续”）
 * 去掉原版chatgpt的各种不方便的东西
   * 微信浏览器的Cloudflare
 * first token 如果10秒还没出来，就退出然后自动刷新页面
