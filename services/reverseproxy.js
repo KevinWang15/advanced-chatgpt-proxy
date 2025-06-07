@@ -1451,7 +1451,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     `M3 8C3 7.44772 3.44772 7 4 7H20C20.5523 7 21 7.44772 21 8C21 8.55228 20.5523 9 20 9H4C3.44772 9 3 8.55228 3 8ZM3 16C3 15.4477 3.44772 15 4 15H14C14.5523 15 15 15.4477 15 16C15 16.5523 14.5523 17 14 17H4C3.44772 17 3 16.5523 3 16Z`
                 );
                 if (req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && !req.url.endsWith(".js")) {
-                    modifiedContent = updateReactRouterScripts(modifiedContent);
+                    modifiedContent = fixReactRouterContextStreamControllerConversation(modifiedContent);
                 }
                 if (process.env.REDACT_EMAIL) {
                     modifiedContent = modifiedContent.replace(
@@ -1818,7 +1818,7 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function updateReactRouterScripts(html) {
+function fixReactRouterContextStreamControllerConversation(html) {
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
         // Preserve the original HTML structure as much as possible
@@ -1832,7 +1832,8 @@ function updateReactRouterScripts(html) {
 
         // Check if the script content contains the target string
         if (scriptContent.includes('window.__reactRouterContext.streamController.enqueue') && scriptContent.includes('conversation_template_id')) {
-            $(element).html(`window.__reactRouterContext.streamController.enqueue("P2161:null\\n");`);
+            const pNum = scriptContent.match(/window.__reactRouterContext.streamController.enqueue\("(P\d+)/)[1];
+            $(element).html(`window.__reactRouterContext.streamController.enqueue("${pNum}:null\\n");`);
         }
     });
 
