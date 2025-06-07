@@ -1450,8 +1450,8 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     'M13.0187 7C13.0061 7.16502 12.9998 7.33176 12.9998 7.5C12.9998 8.01627 13.0599 8.51848 13.1737 9H4C3.44772 9 3 8.55228 3 8C3 7.44772 3.44772 7 4 7H13.0187ZM15.0272 7C15.0091 7.16417 14.9998 7.331 14.9998 7.5C14.9998 8.02595 15.09 8.53083 15.2558 9H20C20.5523 9 21 8.55228 21 8C21 7.44772 20.5523 7 20 7H15.0272ZM4 15C3.44772 15 3 15.4477 3 16C3 16.5523 3.44772 17 4 17H14C14.5523 17 15 16.5523 15 16C15 15.4477 14.5523 15 14 15H4Z',
                     `M3 8C3 7.44772 3.44772 7 4 7H20C20.5523 7 21 7.44772 21 8C21 8.55228 20.5523 9 20 9H4C3.44772 9 3 8.55228 3 8ZM3 16C3 15.4477 3.44772 15 4 15H14C14.5523 15 15 15.4477 15 16C15 16.5523 14.5523 17 14 17H4C3.44772 17 3 16.5523 3 16Z`
                 );
-                if (URL.parse(config.centralServer.url).pathname === '/') {
-                    modifiedContent = removeReactRouterScripts(modifiedContent);
+                if (req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && !req.url.endsWith(".js")) {
+                    modifiedContent = updateReactRouterScripts(modifiedContent);
                 }
                 if (process.env.REDACT_EMAIL) {
                     modifiedContent = modifiedContent.replace(
@@ -1469,7 +1469,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 );
 
                 if (
-                    req.method === 'GET' && req.url.indexOf("/backend-api/") < 0
+                    req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && !req.url.endsWith(".js")
                 ) {
                     modifiedContent = modifiedContent.replace(
                         '</head>',
@@ -1818,7 +1818,7 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function removeReactRouterScripts(html) {
+function updateReactRouterScripts(html) {
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
         // Preserve the original HTML structure as much as possible
@@ -1832,8 +1832,7 @@ function removeReactRouterScripts(html) {
 
         // Check if the script content contains the target string
         if (scriptContent.includes('window.__reactRouterContext.streamController.enqueue') && scriptContent.includes('conversation_template_id')) {
-            // Remove the script block
-            $(element).remove();
+            $(element).html(`window.__reactRouterContext.streamController.enqueue("P2161:null\\n");`);
         }
     });
 
