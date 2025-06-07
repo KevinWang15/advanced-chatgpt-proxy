@@ -3,6 +3,7 @@ const path = require('path');
 const url = require('url');
 const cors = require('cors');
 const express = require('express');
+const cheerio = require('cheerio');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
 const {v4: uuidv4} = require('uuid');
@@ -41,7 +42,7 @@ const {
 const {mockSuccessDomains, mockSuccessPaths, bannedPaths, domainsToProxy} = require('../consts');
 const {HttpsProxyAgent} = require("https-proxy-agent");
 const {accounts, mapUserTokenToPendingNewConversation, incrementUsage, getAllAccounts} = require("../state/state");
-const { processGizmoData, getGizmoById } = require('./gizmoMonitor');
+const {processGizmoData, getGizmoById} = require('./gizmoMonitor');
 
 const avatarCache = new Map();
 const mimeTypes = {
@@ -290,8 +291,8 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
             return VARIANTS[index];
         }
 
-        const { size, seed } = req.params;
-        const parsedSize   = parseInt(size, 10);
+        const {size, seed} = req.params;
+        const parsedSize = parseInt(size, 10);
         const validatedSize =
             isNaN(parsedSize) || parsedSize < 1 || parsedSize > 500 ? 120 : parsedSize;
 
@@ -384,7 +385,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
         const accountId = req.cookies['account_id'];
         const selectedAccount = await anonymizationService.getSelectedAccountById(accountId);
         if (!selectedAccount) {
-            if(req.cookies['account_switcher_url']){
+            if (req.cookies['account_switcher_url']) {
                 return res.redirect(req.cookies['account_switcher_url']);
             }
             return res.redirect('/accountswitcher');
@@ -566,7 +567,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
 
                         try {
                             const gizmo = await prisma.gizmo.findUnique({
-                                where: { id: gizmoId }
+                                where: {id: gizmoId}
                             });
 
                             if (gizmo) {
@@ -755,7 +756,7 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                         };
                     });
 
-                    const response = { items };
+                    const response = {items};
 
                     await prisma.$disconnect();
 
@@ -1178,7 +1179,7 @@ async function getRealAccountName(account) {
  */
 async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer, selectedAccount) {
     // Import the deep research monitor helper if not already available
-    const { processConversationForDeepResearch } = require('./deepResearchMonitor');
+    const {processConversationForDeepResearch} = require('./deepResearchMonitor');
     try {
         // Prepare headers for the outgoing request
         const headers = {...req.headers};
@@ -1342,12 +1343,12 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
             // Process gizmo data from responses (both GET and POST)
             if (isTextResponse &&
                 ((req.method === 'GET' &&
-                  targetPath.startsWith('/backend-api/gizmos/') &&
-                  !targetPath.includes('/conversation/') &&
-                  !targetPath.includes('/conversations') &&
-                  !targetPath.includes('/bootstrap') &&
-                  !targetPath.includes('/sidebar')) ||
-                 (req.method === 'POST' && targetPath.endsWith('/backend-api/gizmos/snorlax/upsert')))) {
+                        targetPath.startsWith('/backend-api/gizmos/') &&
+                        !targetPath.includes('/conversation/') &&
+                        !targetPath.includes('/conversations') &&
+                        !targetPath.includes('/bootstrap') &&
+                        !targetPath.includes('/sidebar')) ||
+                    (req.method === 'POST' && targetPath.endsWith('/backend-api/gizmos/snorlax/upsert')))) {
 
                 try {
                     let gizmoId = null;
@@ -1449,6 +1450,9 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     'M13.0187 7C13.0061 7.16502 12.9998 7.33176 12.9998 7.5C12.9998 8.01627 13.0599 8.51848 13.1737 9H4C3.44772 9 3 8.55228 3 8C3 7.44772 3.44772 7 4 7H13.0187ZM15.0272 7C15.0091 7.16417 14.9998 7.331 14.9998 7.5C14.9998 8.02595 15.09 8.53083 15.2558 9H20C20.5523 9 21 8.55228 21 8C21 7.44772 20.5523 7 20 7H15.0272ZM4 15C3.44772 15 3 15.4477 3 16C3 16.5523 3.44772 17 4 17H14C14.5523 17 15 16.5523 15 16C15 15.4477 14.5523 15 14 15H4Z',
                     `M3 8C3 7.44772 3.44772 7 4 7H20C20.5523 7 21 7.44772 21 8C21 8.55228 20.5523 9 20 9H4C3.44772 9 3 8.55228 3 8ZM3 16C3 15.4477 3.44772 15 4 15H14C14.5523 15 15 15.4477 15 16C15 16.5523 14.5523 17 14 17H4C3.44772 17 3 16.5523 3 16Z`
                 );
+                if (URL.parse(config.centralServer.url).pathname === '/') {
+                    modifiedContent = removeReactRouterScripts(modifiedContent);
+                }
                 if (process.env.REDACT_EMAIL) {
                     modifiedContent = modifiedContent.replace(
                         process.env.REDACT_EMAIL,
@@ -1812,6 +1816,29 @@ async function handleConversation(req, res, payload, {doWork, selectedAccount}) 
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function removeReactRouterScripts(html) {
+    // Load the HTML into cheerio
+    const $ = cheerio.load(html, {
+        // Preserve the original HTML structure as much as possible
+        decodeEntities: false,
+        xmlMode: false
+    });
+
+    // Find all script tags
+    $('script').each((index, element) => {
+        const scriptContent = $(element).html() || '';
+
+        // Check if the script content contains the target string
+        if (scriptContent.includes('window.__reactRouterContext.streamController.enqueue') && scriptContent.includes('conversation_template_id')) {
+            // Remove the script block
+            $(element).remove();
+        }
+    });
+
+    // Return the modified HTML
+    return $.html();
 }
 
 module.exports = {startReverseProxy};
