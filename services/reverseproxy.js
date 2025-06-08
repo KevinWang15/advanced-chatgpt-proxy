@@ -485,6 +485,10 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 return handleMyRecentImageGen(req, res);
             }
 
+            if (parsedUrl.pathname.startsWith('/backend-api/models') && req.method === 'GET') {
+                return handleGetModels(req, res);
+            }
+
             if (parsedUrl.pathname.startsWith('/api/auth/session')) {
                 return handleApiAuthSession(req, res);
             }
