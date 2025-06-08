@@ -1819,6 +1819,8 @@ function sleep(ms) {
 
 const INJECTION_FILE_PATH='/Users/kevin.ke.wang/WebstormProjects/trydecode/direct-data-injection.html';
 
+
+
 function changeToDirectlyInject(html) {
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
@@ -1827,35 +1829,88 @@ function changeToDirectlyInject(html) {
         xmlMode: false
     });
 
-    // Find all script tags
+    // Read the direct injection script from the environment variable path
+    const injectionPath = INJECTION_FILE_PATH || 'direct-data-injection.html';
+    const injectionContent = fs.readFileSync(injectionPath, 'utf8');
+
+    // Extract the data from our direct injection file
+    const dataMatch = injectionContent.match(/window\.__reactRouterResolvedData\s*=\s*({[\s\S]*?});/);
+    const directData = dataMatch ? dataMatch[1] : '{}';
+
+    // Add interceptor before any streaming setup
+    $('head').prepend(`<script>
+  // Intercept and replace streaming with direct data
+  (function() {
+      const directData = ${directData};
+
+      // Create mock chunks that contain our direct data
+      const mockChunks = [
+          JSON.stringify([
+              {
+                  "loaderData": {
+                      "root": directData,
+                      "routes/_conversation": directData,
+                      "routes/_conversation._index": {}
+                  },
+                  "actionData": null,
+                  "errors": null
+              }
+          ]),
+          'P1:[]',
+          'P2:[]',
+          'P3:[]',
+          'P4:[]',
+          'P5:[]'
+      ];
+
+      let chunkIndex = 0;
+
+      // Override the enqueue method before it's called
+      const originalReadableStream = window.ReadableStream;
+      window.ReadableStream = function(underlyingSource, strategy) {
+          const stream = new originalReadableStream({
+              start(controller) {
+                  // Replace the controller's enqueue with our mock
+                  const originalEnqueue = controller.enqueue.bind(controller);
+                  controller.enqueue = function(chunk) {
+                      // Instead of using the original chunk, use our mock data
+                      if (chunkIndex < mockChunks.length) {
+                          originalEnqueue(mockChunks[chunkIndex]);
+                          chunkIndex++;
+                      }
+                  };
+
+                  // Store the controller globally as expected
+                  if (window.__reactRouterContext) {
+                      window.__reactRouterContext.streamController = controller;
+                  }
+
+                  // Call original start if it exists
+                  if (underlyingSource && underlyingSource.start) {
+                      underlyingSource.start(controller);
+                  }
+              },
+              pull: underlyingSource?.pull,
+              cancel: underlyingSource?.cancel
+          }, strategy);
+
+          return stream;
+      };
+
+      console.log('✅ Stream interceptor ready with direct data');
+  })();
+  </script>`);
+
+    // Find all script tags and remove the actual enqueue calls
     $('script').each((index, element) => {
         const scriptContent = $(element).html();
 
-        // Check if this script contains streaming enqueue calls
+        // Remove scripts that contain enqueue calls
         if (scriptContent && scriptContent.includes('__reactRouterContext.streamController.enqueue')) {
-            $(element).remove();
-        }
-
-        // Also remove any script that sets up the streaming context
-        if (scriptContent && scriptContent.includes('__reactRouterContext') &&
-            (scriptContent.includes('ReadableStream') || scriptContent.includes('streamController'))) {
             $(element).remove();
         }
     });
 
-    // Read the direct injection script from the environment variable path
-    const injectionPath =INJECTION_FILE_PATH;
-    const injectionContent = fs.readFileSync(injectionPath, 'utf8');
-
-    // Extract just the script content (remove HTML wrapper if present)
-    const scriptMatch = injectionContent.match(/<script>([\s\S]*?)<\/script>/);
-    const directDataScript = scriptMatch ? scriptMatch[1] : injectionContent;
-
-    // Add the direct injection script to the head
-    $('head').append(`<script>${directDataScript}</script>`);
-
     // Return the modified HTML
     return $.html();
-}
-
-module.exports = {startReverseProxy};
+}module.exports = {startReverseProxy};
