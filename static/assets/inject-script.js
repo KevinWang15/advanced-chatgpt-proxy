@@ -42,8 +42,11 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     function observeAndManageElements() {
-        document.querySelectorAll('div[role="presentation"] #page-header button')[0]
-            .style.setProperty('pointer-events', 'all', 'important');
+
+        setInterval(() => {
+            document.querySelectorAll('div[role="presentation"] #page-header button')[0]
+                .style.setProperty('pointer-events', 'all', 'important');
+        }, 1000);
 
         // Define what to hide
         const hideByAriaLabel = new Set([
