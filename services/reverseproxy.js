@@ -1821,6 +1821,7 @@ const INJECTION_FILE_PATH='/Users/kevin.ke.wang/WebstormProjects/trydecode/direc
 
 
 
+
 function changeToDirectlyInject(html) {
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
@@ -1829,88 +1830,79 @@ function changeToDirectlyInject(html) {
         xmlMode: false
     });
 
-    // Read the direct injection script from the environment variable path
+    // Read the direct injection script to get resolved data
     const injectionPath = INJECTION_FILE_PATH || 'direct-data-injection.html';
     const injectionContent = fs.readFileSync(injectionPath, 'utf8');
 
-    // Extract the data from our direct injection file
+    // Extract the resolved data
     const dataMatch = injectionContent.match(/window\.__reactRouterResolvedData\s*=\s*({[\s\S]*?});/);
-    const directData = dataMatch ? dataMatch[1] : '{}';
+    const resolvedData = dataMatch ? JSON.parse(dataMatch[1]) : {};
 
-    // Add interceptor before any streaming setup
-    $('head').prepend(`<script>
-  // Intercept and replace streaming with direct data
-  (function() {
-      const directData = ${directData};
-
-      // Create mock chunks that contain our direct data
-      const mockChunks = [
-          JSON.stringify([
-              {
-                  "loaderData": {
-                      "root": directData,
-                      "routes/_conversation": directData,
-                      "routes/_conversation._index": {}
-                  },
-                  "actionData": null,
-                  "errors": null
-              }
-          ]),
-          'P1:[]',
-          'P2:[]',
-          'P3:[]',
-          'P4:[]',
-          'P5:[]'
-      ];
-
-      let chunkIndex = 0;
-
-      // Override the enqueue method before it's called
-      const originalReadableStream = window.ReadableStream;
-      window.ReadableStream = function(underlyingSource, strategy) {
-          const stream = new originalReadableStream({
-              start(controller) {
-                  // Replace the controller's enqueue with our mock
-                  const originalEnqueue = controller.enqueue.bind(controller);
-                  controller.enqueue = function(chunk) {
-                      // Instead of using the original chunk, use our mock data
-                      if (chunkIndex < mockChunks.length) {
-                          originalEnqueue(mockChunks[chunkIndex]);
-                          chunkIndex++;
-                      }
-                  };
-
-                  // Store the controller globally as expected
-                  if (window.__reactRouterContext) {
-                      window.__reactRouterContext.streamController = controller;
-                  }
-
-                  // Call original start if it exists
-                  if (underlyingSource && underlyingSource.start) {
-                      underlyingSource.start(controller);
-                  }
-              },
-              pull: underlyingSource?.pull,
-              cancel: underlyingSource?.cancel
-          }, strategy);
-
-          return stream;
-      };
-
-      console.log('✅ Stream interceptor ready with direct data');
-  })();
-  </script>`);
-
-    // Find all script tags and remove the actual enqueue calls
+    // Find all script tags and replace streaming ones
     $('script').each((index, element) => {
         const scriptContent = $(element).html();
 
-        // Remove scripts that contain enqueue calls
+        // Replace streaming enqueue calls with resolved data
         if (scriptContent && scriptContent.includes('__reactRouterContext.streamController.enqueue')) {
             $(element).remove();
         }
     });
 
+    // We need to convert back to React Router's wire format (reference-based)
+    // Create a simple flat array with our data and use references
+    const wireArray = [
+        "loaderData", // 0
+        "root", // 1
+        resolvedData['rq:["account-status"]'] || [], // 2
+        "routes/_conversation", // 3
+        resolvedData['rq:["models"]'] || [], // 4
+        "routes/_conversation._index", // 5
+        resolvedData['rq:["conversationHistory"]'] || [], // 6
+        resolvedData['rq:["promptStarters",8,null]'] || [], // 7
+        "actionData", // 8
+        "errors", // 9
+        null // 10
+    ];
+
+    // Create the main chunk using references
+    const mainChunk = [
+        {
+            "_0": 1, // "loaderData": "root"
+            "_1": {
+                "_3": 2, // "routes/_conversation": account-status data (will be replaced in P chunks)
+                "_5": {} // "routes/_conversation._index": {}
+            },
+            "_8": 10, // "actionData": null
+            "_9": 10  // "errors": null
+        }
+    ];
+
+    // Add the wire array to the beginning
+    const fullMainChunk = wireArray.concat(mainChunk);
+
+    // Generate the 6 streaming scripts with proper escaping
+    const scripts = [
+        `window.__reactRouterContext.streamController.enqueue(${JSON.stringify(JSON.stringify(fullMainChunk))});`,
+        `window.__reactRouterContext.streamController.enqueue("P2153:" +
+  ${JSON.stringify(JSON.stringify(resolvedData['rq:["account-status"]'] || []))});`,
+        `window.__reactRouterContext.streamController.enqueue("P2165:" +
+  ${JSON.stringify(JSON.stringify(resolvedData['rq:["promptStarters",8,null]'] || []))});`,
+        `window.__reactRouterContext.streamController.enqueue("P6:" +
+  ${JSON.stringify(JSON.stringify(resolvedData['rq:["account-status"]'] || []))});`,
+        `window.__reactRouterContext.streamController.enqueue("P2163:" +
+  ${JSON.stringify(JSON.stringify(resolvedData['rq:["models"]'] || []))});`,
+        `window.__reactRouterContext.streamController.enqueue("P2167:" +
+  ${JSON.stringify(JSON.stringify(resolvedData['rq:["conversationHistory"]'] || []))});`
+    ];
+
+    // Add each script individually to avoid template string issues
+    scripts.forEach(scriptCode => {
+        $('head').append(`<script>${scriptCode}</script>`);
+    });
+
     // Return the modified HTML
     return $.html();
-}module.exports = {startReverseProxy};
+}
+
+
+module.exports = {startReverseProxy};
