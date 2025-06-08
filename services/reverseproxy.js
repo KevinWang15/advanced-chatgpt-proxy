@@ -485,11 +485,6 @@ function startReverseProxy({doWork, handleMetrics, performDegradationCheckForAcc
                 return handleMyRecentImageGen(req, res);
             }
 
-            // 4) GET /backend-api/models
-            if (parsedUrl.pathname.startsWith('/backend-api/models') && req.method === 'GET') {
-                return handleGetModels(req, res);
-            }
-
             if (parsedUrl.pathname.startsWith('/api/auth/session')) {
                 return handleApiAuthSession(req, res);
             }
@@ -1833,7 +1828,7 @@ function fixReactRouterContextStreamControllerConversation(html) {
         // Check if the script content contains the target string
         if (scriptContent.includes('window.__reactRouterContext.streamController.enqueue') && scriptContent.includes('conversation_template_id')) {
             const pNum = scriptContent.match(/window.__reactRouterContext.streamController.enqueue\("(P\d+)/)[1];
-            $(element).html(`window.__reactRouterContext.streamController.enqueue("${pNum}:null\\n");`);
+            $(element).html(`window.__reactRouterContext.streamController.enqueue("${pNum}:[]\\n");`);
         }
     });
 
