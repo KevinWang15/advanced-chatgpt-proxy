@@ -1817,9 +1817,7 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const INJECTION_FILE_PATH='/Users/kevin.ke.wang/WebstormProjects/trydecode/direct-data-injection.html';
-
-
+const INJECTION_FILE_PATH = '/Users/kevin.ke.wang/WebstormProjects/trydecode/direct-data-injection.html';
 
 
 function changeToDirectlyInject(html) {
@@ -1831,74 +1829,26 @@ function changeToDirectlyInject(html) {
     });
 
     // Read the direct injection script to get resolved data
-    const injectionPath = INJECTION_FILE_PATH || 'direct-data-injection.html';
+    const injectionPath = 'direct-data-injection.html';
     const injectionContent = fs.readFileSync(injectionPath, 'utf8');
 
-    // Extract the resolved data
-    const dataMatch = injectionContent.match(/window\.__reactRouterResolvedData\s*=\s*({[\s\S]*?});/);
-    const resolvedData = dataMatch ? JSON.parse(dataMatch[1]) : {};
-
+    let found = false;
     // Find all script tags and replace streaming ones
     $('script').each((index, element) => {
         const scriptContent = $(element).html();
 
         // Replace streaming enqueue calls with resolved data
         if (scriptContent && scriptContent.includes('__reactRouterContext.streamController.enqueue')) {
-            $(element).remove();
+            if (!found) {
+                $(element).html(injectionContent);
+            } else {
+                $(element).remove();
+
+            }
         }
     });
 
-    // We need to convert back to React Router's wire format (reference-based)
-    // Create a simple flat array with our data and use references
-    const wireArray = [
-        "loaderData", // 0
-        "root", // 1
-        resolvedData['rq:["account-status"]'] || [], // 2
-        "routes/_conversation", // 3
-        resolvedData['rq:["models"]'] || [], // 4
-        "routes/_conversation._index", // 5
-        resolvedData['rq:["conversationHistory"]'] || [], // 6
-        resolvedData['rq:["promptStarters",8,null]'] || [], // 7
-        "actionData", // 8
-        "errors", // 9
-        null // 10
-    ];
-
-    // Create the main chunk using references
-    const mainChunk = [
-        {
-            "_0": 1, // "loaderData": "root"
-            "_1": {
-                "_3": 2, // "routes/_conversation": account-status data (will be replaced in P chunks)
-                "_5": {} // "routes/_conversation._index": {}
-            },
-            "_8": 10, // "actionData": null
-            "_9": 10  // "errors": null
-        }
-    ];
-
-    // Add the wire array to the beginning
-    const fullMainChunk = wireArray.concat(mainChunk);
-
-    // Generate the 6 streaming scripts with proper escaping
-    const scripts = [
-        `window.__reactRouterContext.streamController.enqueue(${JSON.stringify(JSON.stringify(fullMainChunk))});`,
-        `window.__reactRouterContext.streamController.enqueue("P2153:" +
-  ${JSON.stringify(JSON.stringify(resolvedData['rq:["account-status"]'] || []))});`,
-        `window.__reactRouterContext.streamController.enqueue("P2165:" +
-  ${JSON.stringify(JSON.stringify(resolvedData['rq:["promptStarters",8,null]'] || []))});`,
-        `window.__reactRouterContext.streamController.enqueue("P6:" +
-  ${JSON.stringify(JSON.stringify(resolvedData['rq:["account-status"]'] || []))});`,
-        `window.__reactRouterContext.streamController.enqueue("P2163:" +
-  ${JSON.stringify(JSON.stringify(resolvedData['rq:["models"]'] || []))});`,
-        `window.__reactRouterContext.streamController.enqueue("P2167:" +
-  ${JSON.stringify(JSON.stringify(resolvedData['rq:["conversationHistory"]'] || []))});`
-    ];
-
-    // Add each script individually to avoid template string issues
-    scripts.forEach(scriptCode => {
-        $('head').append(`<script>${scriptCode}</script>`);
-    });
+    // $('body').append(`<script>${injectionContent}</script>`);
 
     // Return the modified HTML
     return $.html();
