@@ -40,136 +40,139 @@
 })()
 
 
-// document.addEventListener('DOMContentLoaded', () => {
-//     function observeAndManageElements() {
-//         // Define what to hide
-//         const hideByAriaLabel = new Set([
-//             'Turn on temporary chat', '开启临时聊天', '開啟臨時聊話',
-//             'Share', '共享', '分享',
-//             'Open Profile Menu', '打开"个人资料"菜单', '開啟設定檔功能表'
-//         ]);
-//
-//         const hideByInnerText = new Set([
-//             'GPTs', 'GPT',
-//             'Operator', 'Codex', 'New project', '新項目', 'Sora',
-//             'Library', '库', '庫',
-//         ]);
-//
-//         // Process a single element
-//         const processElement = (element) => {
-//             if (!(element instanceof Element)) return;
-//
-//             // Skip already hidden elements
-//             if (element.style.display === 'none') return;
-//
-//             // Check aria-label (only if attribute exists)
-//             if (element.hasAttribute('aria-label')) {
-//                 const ariaLabel = element.getAttribute('aria-label');
-//                 if (hideByAriaLabel.has(ariaLabel)) {
-//                     element.style.display = 'none';
-//                     return;
-//                 }
-//             }
-//
-//             // Check innerText only for elements likely to have text
-//             // Skip elements with many children (likely containers)
-//             if (element.childElementCount < 5) {
-//                 const text = element.innerText?.trim();
-//                 if (text && text.length < 50 && hideByInnerText.has(text)) {
-//                     element.style.display = 'none';
-//                 }
-//             }
-//         };
-//
-//         // Initial scan - only check elements likely to have aria-label or be interactive
-//         const scanDocument = () => {
-//             // Target common interactive elements and those with aria-label
-//             const selector = '[aria-label], button, a, [role="button"], [role="link"]';
-//             document.querySelectorAll(selector).forEach(processElement);
-//
-//             // For innerText, check common text containers
-//             document.querySelectorAll('a, button, span, div:not([class*="container"])').forEach(el => {
-//                 if (el.childElementCount < 5) {
-//                     processElement(el);
-//                 }
-//             });
-//         };
-//
-//         // Observer for new elements
-//         const observer = new MutationObserver((mutations) => {
-//             const processed = new WeakSet(); // Avoid processing same element multiple times
-//
-//             mutations.forEach(mutation => {
-//                 if (mutation.type === 'childList') {
-//                     mutation.addedNodes.forEach(node => {
-//                         if (node instanceof Element && !processed.has(node)) {
-//                             processed.add(node);
-//                             processElement(node);
-//
-//                             // Only scan descendants if node isn't huge
-//                             if (node.childElementCount < 100) {
-//                                 node.querySelectorAll('[aria-label], button, a, span').forEach(child => {
-//                                     if (!processed.has(child)) {
-//                                         processed.add(child);
-//                                         processElement(child);
-//                                     }
-//                                 });
-//                             }
-//                         }
-//                     });
-//                 } else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
-//                     processElement(mutation.target);
-//                 }
-//             });
-//         });
-//
-//         // Start observing
-//         const start = () => {
-//             scanDocument();
-//             observer.observe(document.body, {
-//                 childList: true,
-//                 subtree: true,
-//                 attributes: true,
-//                 attributeFilter: ['aria-label']
-//             });
-//         };
-//
-//         if (document.readyState === 'loading') {
-//             document.addEventListener('DOMContentLoaded', start);
-//         } else {
-//             start();
-//         }
-//     }
-//
-// // Call the function to start
-//     observeAndManageElements();
-//     setTimeout(() => {
-//         new FloatingWidget({
-//             menuItems: [
-//                 {
-//                     label: window.navigator.language.startsWith('zh') ? "切换账号" : "Switch Account",
-//                     onClick: () => {
-//                         window.location.href = getCookie('account_switcher_url') || '/accountswitcher/'
-//                     }
-//                 }
-//             ],
-//         })
-//     }, 1000);
-//
-//
-//     const style = document.createElement('style');
-//
-//     // Set the CSS content
-//     style.textContent = `
-//   #conversation-header-actions {
-//     display: none;
-//   }
-// `;
-//
-//     // Append the style element to the document head
-//     document.head.appendChild(style);
-//
-// });
+document.addEventListener('DOMContentLoaded', () => {
+    function observeAndManageElements() {
+        document.querySelectorAll('div[role="presentation"] #page-header button')[0]
+            .style.setProperty('pointer-events', 'all', 'important');
+
+        // Define what to hide
+        const hideByAriaLabel = new Set([
+            'Turn on temporary chat', '开启临时聊天', '開啟臨時聊話',
+            'Share', '共享', '分享',
+            'Open Profile Menu', '打开"个人资料"菜单', '開啟設定檔功能表'
+        ]);
+
+        const hideByInnerText = new Set([
+            'GPTs', 'GPT',
+            'Operator', 'Codex', 'New project', '新項目', 'Sora',
+            'Library', '库', '庫',
+        ]);
+
+        // Process a single element
+        const processElement = (element) => {
+            if (!(element instanceof Element)) return;
+
+            // Skip already hidden elements
+            if (element.style.display === 'none') return;
+
+            // Check aria-label (only if attribute exists)
+            if (element.hasAttribute('aria-label')) {
+                const ariaLabel = element.getAttribute('aria-label');
+                if (hideByAriaLabel.has(ariaLabel)) {
+                    element.style.display = 'none';
+                    return;
+                }
+            }
+
+            // Check innerText only for elements likely to have text
+            // Skip elements with many children (likely containers)
+            if (element.childElementCount < 5) {
+                const text = element.innerText?.trim();
+                if (text && text.length < 50 && hideByInnerText.has(text)) {
+                    element.style.display = 'none';
+                }
+            }
+        };
+
+        // Initial scan - only check elements likely to have aria-label or be interactive
+        const scanDocument = () => {
+            // Target common interactive elements and those with aria-label
+            const selector = '[aria-label], button, a, [role="button"], [role="link"]';
+            document.querySelectorAll(selector).forEach(processElement);
+
+            // For innerText, check common text containers
+            document.querySelectorAll('a, button, span, div:not([class*="container"])').forEach(el => {
+                if (el.childElementCount < 5) {
+                    processElement(el);
+                }
+            });
+        };
+
+        // Observer for new elements
+        const observer = new MutationObserver((mutations) => {
+            const processed = new WeakSet(); // Avoid processing same element multiple times
+
+            mutations.forEach(mutation => {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node instanceof Element && !processed.has(node)) {
+                            processed.add(node);
+                            processElement(node);
+
+                            // Only scan descendants if node isn't huge
+                            if (node.childElementCount < 100) {
+                                node.querySelectorAll('[aria-label], button, a, span').forEach(child => {
+                                    if (!processed.has(child)) {
+                                        processed.add(child);
+                                        processElement(child);
+                                    }
+                                });
+                            }
+                        }
+                    });
+                } else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
+                    processElement(mutation.target);
+                }
+            });
+        });
+
+        // Start observing
+        const start = () => {
+            scanDocument();
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['aria-label']
+            });
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', start);
+        } else {
+            start();
+        }
+    }
+
+// Call the function to start
+    observeAndManageElements();
+    setTimeout(() => {
+        new FloatingWidget({
+            menuItems: [
+                {
+                    label: window.navigator.language.startsWith('zh') ? "切换账号" : "Switch Account",
+                    onClick: () => {
+                        window.location.href = getCookie('account_switcher_url') || '/accountswitcher/'
+                    }
+                }
+            ],
+        })
+    }, 1000);
+
+
+    const style = document.createElement('style');
+
+    // Set the CSS content
+    style.textContent = `
+  #conversation-header-actions {
+    display: none;
+  }
+`;
+
+    // Append the style element to the document head
+    document.head.appendChild(style);
+
+});
 
 function getCookie(name) {
     const value = `; ${document.cookie}`;
