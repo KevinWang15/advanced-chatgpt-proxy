@@ -1450,7 +1450,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                     `M3 8C3 7.44772 3.44772 7 4 7H20C20.5523 7 21 7.44772 21 8C21 8.55228 20.5523 9 20 9H4C3.44772 9 3 8.55228 3 8ZM3 16C3 15.4477 3.44772 15 4 15H14C14.5523 15 15 15.4477 15 16C15 16.5523 14.5523 17 14 17H4C3.44772 17 3 16.5523 3 16Z`
                 );
                 if (req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && req.url.indexOf("/public-api/") < 0 && !req.url.endsWith(".js") && !req.url.endsWith(".css")) {
-                    modifiedContent = changeToDirectlyInject(modifiedContent);
+                    modifiedContent = changeReactRouterStreamControllerEnqueue(modifiedContent);
                 }
                 if (process.env.REDACT_EMAIL) {
                     modifiedContent = modifiedContent.replace(
@@ -1817,10 +1817,7 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const INJECTION_FILE_PATH = '/Users/kevin.ke.wang/WebstormProjects/trydecode/direct-data-injection.html';
-
-
-function changeToDirectlyInject(html) {
+function changeReactRouterStreamControllerEnqueue(html) {
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
         // Preserve the original HTML structure as much as possible
@@ -1828,31 +1825,26 @@ function changeToDirectlyInject(html) {
         xmlMode: false
     });
 
-    // Read the direct injection script to get resolved data
-    const injectionPath = 'direct-data-injection.html';
-    const injectionContent = fs.readFileSync(injectionPath, 'utf8');
+    // Read input.txt and split into lines
+    const inputLines = fs.readFileSync('react-router-stream-controller-enqueue.txt', 'utf8').trim().split('\n');
 
-    let found = false;
-    // Find all script tags and replace streaming ones
-    $('script').each((index, element) => {
-        const scriptContent = $(element).html();
+    // Replace script content in each hidden div S:0 through S:5
+    for (let i = 0; i < 6; i++) {
+        const divSelector = `div[hidden][id="S:${i}"]`;
+        const $div = $(divSelector);
 
-        // Replace streaming enqueue calls with resolved data
-        if (scriptContent && scriptContent.includes('__reactRouterContext.streamController.enqueue')) {
-            if (!found) {
-                $(element).html(injectionContent);
-            } else {
-                $(element).remove();
-
+        if ($div.length > 0 && inputLines[i]) {
+            // Find the script tag within this div
+            const $script = $div.find('script');
+            if ($script.length > 0) {
+                // Replace the script content with the corresponding line from input.txt
+                $script.text(`\n                ${inputLines[i]}\n            `);
             }
         }
-    });
-
-    // $('body').append(`<script>${injectionContent}</script>`);
+    }
 
     // Return the modified HTML
     return $.html();
 }
-
 
 module.exports = {startReverseProxy};
