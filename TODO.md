@@ -6,6 +6,7 @@
 * 代码写得太差了找时间重新写
 * 账号随机端口，但是如果上次的还能用，优先用上次的
 * tab janitor 很重要
+* 自动刷新Access Token (jwt)
 
 
 * Projects
