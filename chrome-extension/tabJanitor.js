@@ -107,18 +107,18 @@ class TabJanitor {
 
     /* ──────────────────────────────────────────── */
     async #cycleTabs() {
-        if (this.#cycling) return;
-        this.#cycling = true;
-        try {
-            const tabs = await chrome.tabs.query({url: '*://chatgpt.com/*'});
-            for (const t of tabs) {
-                await chrome.tabs.update(t.id, {active: true});
-                await chrome.windows.update(t.windowId, {focused: true});
-                await new Promise(r => setTimeout(r, 60_000 * Math.random()));
-            }
-        } finally {
-            this.#cycling = false;
-        }
+        // if (this.#cycling) return;
+        // this.#cycling = true;
+        // try {
+        //     const tabs = await chrome.tabs.query({url: '*://chatgpt.com/*'});
+        //     for (const t of tabs) {
+        //         await chrome.tabs.update(t.id, {active: true});
+        //         await chrome.windows.update(t.windowId, {focused: true});
+        //         await new Promise(r => setTimeout(r, 60_000 * Math.random()));
+        //     }
+        // } finally {
+        //     this.#cycling = false;
+        // }
     }
 }
 

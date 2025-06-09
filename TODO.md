@@ -1,15 +1,15 @@
 # TODO
 
 * advanced voice mode
+* 有些时候生成到一半，会断开网络连接
+* 如果正在Working，那么不要刷新页面
+* 代码写得太差了找时间重新写
+* 账号随机端口，但是如果上次的还能用，优先用上次的
+
+
 * Projects
   * 重命名Project和conversation
   * mapUserTokenToPendingNewConversation的处理
-* oai/apps/conversationDrafts
-  : 
-  "{\"drafts\":[{\"id\":\"null_thread\",\"content\":\"...\",\"timestamp\":1747470315942}],\"userId\":\"user-HtI45OkQ7SWpcrZpgciC1l1m\"}"
-
-* 有些时候生成到一半，会断开网络连接
-* 如果正在Working，那么不要刷新页面
 * 怎么第一次加载，会用错模型？要不sessionStorage里面，搞个refresh吧 - 或者插件控制warm up
 * canvas - 切换账号之后会不工作
 * “…”按钮 当中 添加导出当前会话等功能
@@ -20,7 +20,6 @@
   * 现在变成了该刷新的时候需要多刷新
 * 优化搜索功能和归档功能
 * 各种分页（cursor）功能实现
-* 代码写得太差了找时间重新写
 * canvas当中执行代码
 * connecting卡住的话要backoff重连
 * 网关模式, 动态路由优选

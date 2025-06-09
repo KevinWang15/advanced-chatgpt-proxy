@@ -1468,7 +1468,7 @@ async function proxyRequest(req, res, targetHost, targetPath, requestBodyBuffer,
                 );
 
                 if (
-                    req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && !req.url.endsWith(".js")
+                    req.method === 'GET' && req.url.indexOf("/backend-api/") < 0 && req.url.indexOf("/public-api/") < 0 && !req.url.endsWith(".js")
                 ) {
                     modifiedContent = modifiedContent.replace(
                         '</head>',
