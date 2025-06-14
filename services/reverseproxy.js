@@ -1818,6 +1818,7 @@ function sleep(ms) {
 }
 
 function changeReactRouterStreamControllerEnqueue(html) {
+    return html.split('conversationHistory').replace('___conversationHistory');
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
         // Preserve the original HTML structure as much as possible
