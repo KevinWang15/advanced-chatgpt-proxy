@@ -1818,7 +1818,10 @@ function sleep(ms) {
 }
 
 function changeReactRouterStreamControllerEnqueue(html) {
-    return html.split('conversationHistory').replace('___conversationHistory');
+    if (!html) {
+        return html;
+    }
+    return html.toString().split('conversationHistory').join('___conversationHistory');
     // Load the HTML into cheerio
     const $ = cheerio.load(html, {
         // Preserve the original HTML structure as much as possible
